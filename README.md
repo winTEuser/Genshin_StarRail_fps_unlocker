@@ -39,10 +39,10 @@
  - If you are using other third-party plugins, you are doing it at your own risk.
  - Any artifacts from unlocking fps (e.g. stuttering) is **NOT** a bug of the unlocker
 
-#-------------------------------------------------------------------
-#Thanks
+# -------------------------------------------------------------------
+# Thanks
 **34736384**
 **xiaonian233**
-#-------------------------------------------------------------------
+# -------------------------------------------------------------------
 
 
