@@ -35,7 +35,7 @@
 - **Right Ctrl + Left Key**       (-2)
 
 ## HotPatch
- - Make the unlock continue to take effect 
+ - Make the unlock continue to take effect when R/W game mem failed
  - Change game fps set: 
  - 30 -> 60(open ANNCMT won't cause stalling)
  - 45 -> your fps target
