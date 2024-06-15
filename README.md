@@ -5,7 +5,7 @@
 
 [EN](README.md) | [简中](README_zh_cn.md)
 
--**！If need more function please download 34736384's unlocker,This repo only unlock fps.  [34736384's unlocker](https://github.com/34736384/genshin-fps-unlock)
+ - **！If need more function please download 34736384's unlocker,This repo only unlock fps.** [34736384's unlocker](https://github.com/34736384/genshin-fps-unlock)
 
  - This tool helps you to unlock the 60 fps limit in the game
  - This is an external program which uses **WriteProcessMemory** to write the desired fps to the game
