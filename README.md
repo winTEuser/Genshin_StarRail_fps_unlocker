@@ -28,21 +28,30 @@
  >It requires adminstrator because the game needs to be started by the unlocker and the game requires such permission
 
 ### Default Hotkey
-- **END**  ON/OFF
-- **Right Ctrl + Up key     **   (+20)
-- **Right Ctrl + Right key **   (+2)
+- **END**                                 ON/OFF
+- **Right Ctrl + Up key**        (+20)
+- **Right Ctrl + Right key**    (+2)
 - **Right Ctrl + Down key**   (-20)
-- **Right Ctrl + Left Key   **   (-2)
+- **Right Ctrl + Left Key**       (-2)
+
+## HotPatch
+ - Make the unlock continue to take effect 
+ - Change game fps set: 
+ - 30 -> 60(open ANNCMT won't cause stalling)
+ - 45 -> your fps target
+ - 60 -> no limit
+ - StarRail change **all fps** set to your fps target
 
  ## Notes
  - HoYoverse (miHoYo) is well aware of this tool, and you will not get banned for using **ONLY** fps unlock.
  - If you are using other third-party plugins, you are doing it at your own risk.
  - Any artifacts from unlocking fps (e.g. stuttering) is **NOT** a bug of the unlocker
 
-# -------------------------------------------------------------------
+
+# ---------------------------------------------------------
 # Thanks
 **34736384**
 **xiaonian233**
-# -------------------------------------------------------------------
+# ---------------------------------------------------------
 
 
