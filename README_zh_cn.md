@@ -19,7 +19,7 @@
  - 支持国服和外服
  - 理论上支持后续版本，不需要更新源码
  - 如果需要更新我会尽快更新
- - 如果不想手动编译的话去[Release](https://github.com/winTEuser/genshin-StarRail-fps-unlock/releases) 下载编译好的
+ - 如果不想手动编译的话去[Release](https://github.com/winTEuser/genshin-StarRail-fps-unlock/releases)下载编译好的
 # -----------------------------------------------------------------
 ## 自定义参数启动
  - 给unlockfps.exe创建一个快捷方式，在快捷方式的属性处加上需要的参数例如-popupwindow，支持多参数
@@ -43,7 +43,7 @@
 - 源里默认的FPS数值是120
 
 ## 热修补
- - 使解锁继续生效 当读写游戏内存失败
+ - 使解锁继续生效 当读写游戏内存失败时
  - 改变游戏里的帧数设置: 
  - 30 -> 60(打开公告不会卡顿)
  - 45 -> 解锁器里的帧数设置
