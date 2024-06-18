@@ -22,8 +22,8 @@
  - 如果不想手动编译的话去[Release](https://github.com/winTEuser/genshin-StarRail-fps-unlock/releases)下载编译好的
 # -----------------------------------------------------------------
 ## 自定义参数启动
- - 给unlockfps.exe创建一个快捷方式，在快捷方式的属性处加上需要的参数例如-popupwindow，支持多参数
- - ![image](https://github.com/winTEuser/Genshin_StarRail_fps_unlocker/assets/Quick_link.jpg)
+ - 给unlockfps.exe创建一个快捷方式,改个图标，在快捷方式的属性处加上需要的参数例如-popupwindow，支持多参数
+ - ![image](https://github.com/winTEuser/Genshin_StarRail_fps_unlocker/blob/main/assets/Quick_link.jpg)
 # -----------------------------------------------------------------
 ## 食用指南
  - 第一次运行的话先以管理员运行，然后手动打开游戏，这样解锁器能够获取到游戏路经并保存在配置文件里，这只需要执行一次，以后就可以直接用解锁器启动游戏了
