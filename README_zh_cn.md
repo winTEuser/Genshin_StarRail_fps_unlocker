@@ -42,6 +42,11 @@
 - **右ctrl + 左方向键** 减少FPS上限 （-2）
 - 源里默认的FPS数值是120
 
+## 命令行 [2.5.5]
+ - unlocker.exe -[游戏] -[游戏参数...]
+ - unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
+ - unlocker.exe -HKSR -???
+
 ## 热修补
  - 使解锁继续生效 当读写游戏内存失败时
  - 改变游戏里的帧数设置: 

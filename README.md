@@ -34,6 +34,11 @@
 - **Right Ctrl + Down key**   (-20)
 - **Right Ctrl + Left Key**       (-2)
 
+## Command Line [2.5.5]
+ - unlocker.exe -[game] -[game argv...]
+ - unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
+ - unlocker.exe -HKSR -???
+
 ## HotPatch
  - Make the unlock continue to take effect when R/W game mem failed
  - Change game fps set: 
