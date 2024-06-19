@@ -1,7 +1,7 @@
 # Genshin Impact & Honkai:StarRail の FPS Unlocker
 
 **Genshin now support ver 4.7** 
-**StarRail now support ver 2.2**
+**StarRail now support ver 2.3**
 
 [EN](README.md) | [简中](README_zh_cn.md)
 
