@@ -45,7 +45,10 @@
 ## 命令行 [2.5.5]
  - unlocker.exe -[游戏] -[游戏参数...]
  - unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
- - unlocker.exe -HKSR -???
+ - unlocker.exe -HKSR -...
+ - 下面是beta内容
+ - 在启动的游戏后面添加参数"-EnableMobileUI"来启用移动端ui,该参数必须是第二个，否则无法被识别
+ - unlocker.exe -Genshin -EnableMobileUI
 
 ## 热修补
  - 使解锁继续生效 当读写游戏内存失败时
