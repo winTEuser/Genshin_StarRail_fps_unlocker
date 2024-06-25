@@ -22,10 +22,10 @@
  ## Usage
  - Run the exe and click the game you want to open. 
  - If it is your first time running, unlocker will wait game start then antomatically to set game path . 
- - Place the compiled exe anywhere you want (except for the game folder)
- - Make sure your game is closed—the unlocker will automatically start the game for you
- - Run the exe as administrator, and leave the exe running
- >It requires adminstrator because the game needs to be started by the unlocker and the game requires such permission
+ - Place the compiled exe anywhere you want (except for the game folder).
+ - Make sure your game is closed—the unlocker will automatically start the game for you.
+ - Run the exe as administrator, and leave the exe running.
+ >It requires adminstrator because the game needs to be started by the unlocker and the game requires such permission.
 
 ### Default Hotkey
 - **END**                                 ON/OFF
@@ -37,7 +37,10 @@
 ## Command Line [2.5.5]
  - unlocker.exe -[game] -[game argv...]
  - unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
- - unlocker.exe -HKSR -???
+ - unlocker.exe -HKSR -......
+ - Here's Beta 2.5.6 Add 
+ - If you want start with mobile UI add the arg "-EnableMobileUI" in **second**
+ - unlocker.exe -[game] -EnableMobileUI -.......
 
 ## HotPatch
  - Make the unlock continue to take effect when R/W game mem failed
