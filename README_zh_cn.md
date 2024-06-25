@@ -46,7 +46,7 @@
  - unlocker.exe -[游戏] -[游戏参数...]
  - unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
  - unlocker.exe -HKSR -...
- - 下面是beta内容
+ - 下面是2.5.6beta内容
  - 在启动的游戏后面添加参数"-EnableMobileUI"来启用移动端ui,该参数必须是第二个，否则无法被识别
  - unlocker.exe -Genshin -EnableMobileUI
 
