@@ -34,6 +34,15 @@
  - 自行编译 要求 Visual Studio Community 2022
 >使用管理员运行是因为游戏必须由解锁器启动，游戏本身就需要管理员权限了，所以负责启动的也是需要的
 
+## 命令行 [2.5.5]
+ - unlocker.exe -[游戏] -[游戏参数...]
+ - unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
+ - unlocker.exe -HKSR -...
+ - 区分大小写
+ - 下面是 2.6.0 之后添加
+ - 在启动的游戏后面添加参数"-EnableMobileUI"来启用移动端ui,该参数必须是第二个，否则无法被识别
+ - unlocker.exe -Genshin -EnableMobileUI
+
 ### 默认热键           PS:按键要按一次改一次，不是长按
 - **END** 开/关
 - **右ctrl + 上方向键** 增大FPS上限 （+20）
@@ -41,11 +50,6 @@
 - **右ctrl + 下方向键** 减少FPS上限 （-20）
 - **右ctrl + 左方向键** 减少FPS上限 （-2）
 - 源里默认的FPS数值是120
-
-## 命令行 [2.5.5]
- - unlocker.exe -[游戏] -[游戏参数...]
- - unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
- - unlocker.exe -HKSR -???
 
 ## 热修补
  - 使解锁继续生效 当读写游戏内存失败时
