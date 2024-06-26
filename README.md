@@ -38,6 +38,10 @@
  - unlocker.exe -[game] -[game argv...]
  - unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
  - unlocker.exe -HKSR -???
+ - **Case sensitive**
+ - Here's 2.6.0 Add 
+ - If you want start with mobile UI add the arg "-EnableMobileUI" must be in the **second**
+ - unlocker.exe -[game] -EnableMobileUI -.......
 
 ## HotPatch
  - Make the unlock continue to take effect when R/W game mem failed
