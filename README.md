@@ -34,18 +34,18 @@
 - **Right Ctrl + Down key**   (-20)
 - **Right Ctrl + Left Key**       (-2)
 
-## Command Line [2.5.5]
+## Command Line (2.5.5 Add)
  - unlocker.exe -[game] -[game argv...]
- - unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
- - unlocker.exe -HKSR -???
+ - eg. unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
+ - eg. unlocker.exe -HKSR -???
  - **Case sensitive**
  - Here's 2.6.0 Add 
- - If you want start with mobile UI add the arg "-EnableMobileUI" must be in the **second**
+ - If you want start with mobile UI add the arg "-EnableMobileUI" **must be in the second**
  - unlocker.exe -[game] -EnableMobileUI -.......
 
-## HotPatch
+## HotPatch(Inject)
  - Make the unlock continue to take effect when R/W game mem failed
- - Change game fps set: 
+ - Change game fps set: (config.ini can change)
  - 30 -> 60(open ANNCMT won't cause stalling)
  - 45 -> your fps target
  - 60 -> no limit
@@ -58,7 +58,7 @@
 
 
 ## Thanks
-**34736384**
-**xiaonian233**
+- **34736384**
+- **xiaonian233**
 
 
