@@ -5,7 +5,7 @@
 
 [EN](README.md) | [简中](README_zh_cn.md)
 
- - **！If need more function please download 34736384's unlocker,This repo only unlock fps.** [34736384's unlocker](https://github.com/34736384/genshin-fps-unlock)
+ - **If need more function please download 34736384's unlocker,This repo only to serve my own needs.** [34736384's unlocker](https://github.com/34736384/genshin-fps-unlock)
 
  - This tool helps you to unlock the 60 fps limit in the game
  - This is an external program which uses **WriteProcessMemory** to write the desired fps to the game
@@ -34,18 +34,18 @@
 - **Right Ctrl + Down key**   (-20)
 - **Right Ctrl + Left Key**       (-2)
 
-## Command Line [2.5.5]
+## Command Line (2.5.5 Add)
  - unlocker.exe -[game] -[game argv...]
- - unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
- - unlocker.exe -HKSR -???
+ - eg. unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
+ - eg. unlocker.exe -HKSR -???
  - **Case sensitive**
  - Here's 2.6.0 Add 
- - If you want start with mobile UI add the arg "-EnableMobileUI" must be in the **second**
+ - If you want start with mobile UI add the arg "**-EnableMobileUI**" **must be in the second**
  - unlocker.exe -[game] -EnableMobileUI -.......
 
-## HotPatch
+## HotPatch(Inject)
  - Make the unlock continue to take effect when R/W game mem failed
- - Change game fps set: 
+ - Change game fps set: (config.ini can change)
  - 30 -> 60(open ANNCMT won't cause stalling)
  - 45 -> your fps target
  - 60 -> no limit
@@ -57,10 +57,8 @@
  - Any artifacts from unlocking fps (e.g. stuttering) is **NOT** a bug of the unlocker
 
 
-# ---------------------------------------------------------
-# Thanks
-**34736384**
-**xiaonian233**
-# ---------------------------------------------------------
+## Thanks
+- **34736384**
+- **xiaonian233**
 
 
