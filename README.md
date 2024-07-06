@@ -40,7 +40,7 @@
  - eg. unlocker.exe -HKSR -???
  - **Case sensitive**
  - Here's 2.6.0 Add 
- - If you want start with mobile UI add the arg "-EnableMobileUI" **must be in the second**
+ - If you want start with mobile UI add the arg "**-EnableMobileUI**" **must be in the second**
  - unlocker.exe -[game] -EnableMobileUI -.......
 
 ## HotPatch(Inject)
