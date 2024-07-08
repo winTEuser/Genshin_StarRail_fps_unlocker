@@ -45,7 +45,7 @@
 
 ## HotPatch(Inject)
  - Make the unlock continue to take effect when R/W game mem failed
- - Change game fps set: (config.ini can change)
+ - Change game fps set: (open IsHookGameSet in hoyofps_config.ini)
  - 30 -> 60(open ANNCMT won't cause stalling)
  - 45 -> your fps target
  - 60 -> no limit
