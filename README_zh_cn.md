@@ -31,7 +31,7 @@
  - 自行编译 使用 Visual Studio 
 >使用管理员运行是因为游戏必须由解锁器启动，游戏本身就需要管理员权限了，所以负责启动的也是需要的
 
-## 命令行
+## 快速启动命令行
  - unlocker.exe -[游戏] -[游戏参数...]
  - 例 unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
  - 例 unlocker.exe -HKSR -...
