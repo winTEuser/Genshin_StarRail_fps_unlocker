@@ -34,7 +34,7 @@
 - **Right Ctrl + Down key**   (-20)
 - **Right Ctrl + Left Key**       (-2)
 
-## Command Line (2.5.5 Add)
+## Command Line
  - unlocker.exe -[game] -[game argv...]
  - eg. unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
  - eg. unlocker.exe -HKSR -???
@@ -45,7 +45,7 @@
 
 ## HotPatch(Inject)
  - Make the unlock continue to take effect when R/W game mem failed
- - Change game fps set: (open IsHookGameSet in hoyofps_config.ini)
+ - Change game fps set: **(open IsHookGameSet in hoyofps_config.ini)**
  - 30 -> 60(open ANNCMT won't cause stalling)
  - 45 -> your fps target
  - 60 -> no limit
