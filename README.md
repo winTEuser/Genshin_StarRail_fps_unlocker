@@ -3,7 +3,7 @@
 **Genshin now support ver 4.8** 
 **StarRail now support ver 2.3**
 
-[EN](README.md) | [简中](README_zh_cn.md)
+[简体中文](README_zh_cn.md)
 
  - **If need more function please download 34736384's unlocker,This repo only to serve my own needs.** [34736384's unlocker](https://github.com/34736384/genshin-fps-unlock)
 
