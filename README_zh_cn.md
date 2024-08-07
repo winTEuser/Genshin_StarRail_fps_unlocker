@@ -7,7 +7,6 @@
 
 - **如果需要更多功能请下载34736384的[unlocker](https://github.com/34736384/genshin-fps-unlock) ,本repo只是个人练手，功能有限，不喜勿喷**
 - **为了方便个人需求，将两款游戏集成在一起，方便启动**
-- **更新了特征，现无需通过copyUserAssembly找特征,因为反作弊会"概率性"禁止读取该区域，按理来说成功概率会更高**
 
 # -----------------------------------------------------------------
  - 工作原理通过**WriteProcessMemory**把FPS数值写进游戏
@@ -36,7 +35,6 @@
  - 例 unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
  - 例 unlocker.exe -HKSR -...
  - **区分大小写**
- - 下面是 2.6.0 之后添加
  - 在启动的游戏后面添加参数"**-EnableMobileUI**"来便捷启用移动端ui,该参数必须是**第二个**，否则无法被识别
  - unlocker.exe -Genshin -EnableMobileUI
 

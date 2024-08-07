@@ -39,13 +39,12 @@
  - eg. unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
  - eg. unlocker.exe -HKSR -???
  - **Case sensitive**
- - Here's 2.6.0 Add 
  - If you want start with mobile UI add the arg "**-EnableMobileUI**" **must be in the second**
  - unlocker.exe -[game] -EnableMobileUI -.......
 
 ## HotPatch(Inject)
  - Make the unlock continue to take effect when R/W game mem failed
- - Change game fps set: **(open <IsHookGameSet> in hoyofps_config.ini)**
+ - Change game fps set: **(open "IsHookGameSet" in hoyofps_config.ini)**
  - 30 -> 60(open ANNCMT won't cause stalling)
  - 45 -> your fps target
  - 60 -> no limit
