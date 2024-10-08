@@ -17,7 +17,7 @@
  - You can download the compiled binary over at [Release](https://github.com/winTEuser/genshin-StarRail-fps-unlock/releases) if you don't want to compile it yourself
 
  ## Compiling
- - Use Visual Studio 2022 Community Edition to compile
+ - Use Visual Studio 2022 Community Edition or Vscode with MSVC
 
  ## Usage
  - Run the exe and click the game you want to open. 
