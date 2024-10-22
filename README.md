@@ -9,7 +9,7 @@
 
  - This tool helps you to unlock the 60 fps limit in the game
  - This is an external program which uses **WriteProcessMemory** to write the desired fps to the game
- - Base unlock protection is already included (Hotpatch)
+ - **Now must be unlocked by inject**
  - Does not require a driver for R/W access
  - Supports OS and CN version
  - Should work for future updates
@@ -42,13 +42,13 @@
  - If you want start with mobile UI add the arg "**-EnableMobileUI**" **must be in the second**
  - unlocker.exe -[game] -EnableMobileUI -.......
 
-## HotPatch(Inject)
+## Inject
  - Now must be unlocked by inject 
- - Change game fps set: **(open "IsHookGameSet" in hoyofps_config.ini)**
+ - Change game fps set(Not work for HKSR): **(open "IsHookGameSet" in hoyofps_config.ini)** 
  - 30 -> 60(open ANNCMT won't cause stalling)
  - 45 -> your fps target
  - 60 -> no limit
- - StarRail change **all fps** set to your fps target
+
 
  ## Notes
  - HoYoverse (miHoYo) is well aware of this tool, and you will not get banned for using **ONLY** fps unlock.
