@@ -3,7 +3,7 @@
 **Genshin now support ver 5.1** 
 **StarRail now support ver 2.6**
 
-[简体中文](README_zh_cn.md)
+[切换为简体中文](README_zh_cn.md)
 
  - **If need more function please download 34736384's unlocker.** [34736384's unlocker](https://github.com/34736384/genshin-fps-unlock)
 
@@ -38,14 +38,14 @@
  - unlocker.exe -[game] -[game argv...]
  - eg. unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
  - eg. unlocker.exe -HKSR -???
- - **Case sensitive**
+ - **Case sensitive** ( below 2.8.1 )
  - If you want start with mobile UI add the arg "**-EnableMobileUI**" **must be in the second**
  - unlocker.exe -[game] -EnableMobileUI -.......
 
 ## Inject
  - Now must be unlocked by inject 
  - Change game fps set(Not work for HKSR): **(open "IsHookGameSet" in hoyofps_config.ini)** 
- - 30 -> 60(open ANNCMT won't cause stalling)
+ - 30 -> 60(open browser in game won't cause stalling)
  - 45 -> your fps target
  - 60 -> no limit
 
