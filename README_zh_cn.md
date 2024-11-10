@@ -1,8 +1,4 @@
-
-## 原神&崩铁 FPS解锁
-
-
-## winTEuser's fork
+## 原神&崩铁 帧率解锁
 
 
 - **如果需要更多功能或GUI界面请下载34736384的[unlocker](https://github.com/34736384/genshin-fps-unlock) **
@@ -34,7 +30,7 @@
  - unlocker.exe -[游戏] -[游戏参数...]
  - 例 unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
  - 例 unlocker.exe -HKSR -...
- - **区分大小写**
+ - **低于(2.8.1)需区分大小写**
  - 在启动的游戏后面添加参数"**-EnableMobileUI**"来便捷启用移动端ui,该参数必须是**第二个**，否则无法被识别
  - unlocker.exe -Genshin -EnableMobileUI
 
@@ -49,7 +45,7 @@
 ## 代码注入
  - 到目前为止只能注入解锁
  - 改变游戏里的帧数设置(目前只对原神有效):**(需在hoyofps_config.ini里面打开IsHookGameSet)**
- - 30 -> 60(打开公告不会卡顿, 默认为60, 配置文件可改, 推荐不变)
+ - 30 -> 60(打开游戏里的浏览器不会卡顿, 默认为60, 配置文件可改)
  - 45 -> 同步解锁器里的帧数设置
  - 60 -> 无限制(默认设置1000，配置文件可改)
 
