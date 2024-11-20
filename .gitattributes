@@ -1,0 +1,4 @@
+*.h text working-tree-encoding=UTF-16 eol=crlf
+*.cpp text working-tree-encoding=UTF-16 eol=crlf
+# Auto detect text files and perform LF normalization
+* text=auto
