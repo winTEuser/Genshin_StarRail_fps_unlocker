@@ -36,8 +36,7 @@ using namespace std;
 
 bool is_supportAVX = Is_supportAVX();
 
-static INLINE BYTE* init_shellcode();
-BYTE* _G_shellcode_buffer = init_shellcode();
+BYTE* _G_shellcode_buffer = 0;
 
 wstring HKSRGamePath{};
 wstring GenGamePath{};
@@ -266,9 +265,9 @@ static INLINE void* memcpy_mm(void* dst, const void* src, size_t size)
 }
 
 
-static INLINE BYTE* init_shellcode()
+static BYTE* init_shellcode()
 {
-    uintptr_t _shellcode_buffer = (uintptr_t)VirtualAlloc(0, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    uintptr_t _shellcode_buffer = (uintptr_t)VirtualAlloc_Internal(0, 0x1000, PAGE_READWRITE);
     if (_shellcode_buffer == 0)
     {
         return 0;
@@ -611,7 +610,7 @@ _no_config:
         // SYNCHRONIZE - 用于等待进程结束 (WaitForSingleObject)
 
         DWORD length = 0x2000;
-        wchar_t* szPath = (wchar_t*)VirtualAlloc(NULL, length + 0x10, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        wchar_t* szPath = (wchar_t*)malloc(length + 0x10);
         if(!szPath)
         {
             Show_Error_Msg(L"Alloc Memory failed! (Get game path)");
@@ -831,7 +830,7 @@ static uint64_t inject_patch(LPVOID text_buffer, uint32_t text_size, uintptr_t _
     if (!isGenshin)
     {
         isHook = 0;
-        while (address = PatternScan_Region(Module_TarSec_RVA, Module_TarSec_Size, "CC 89 0D ?? ?? ?? ?? E9 ?? ?? ?? ?? CC CC CC CC CC"))
+        if (address = PatternScan_Region(Module_TarSec_RVA, Module_TarSec_Size, "CC 89 0D ?? ?? ?? ?? E9 ?? ?? ?? ?? CC CC CC CC CC"))
         {
             int64_t rip = address;
             rip += 3;
@@ -841,17 +840,20 @@ static uint64_t inject_patch(LPVOID text_buffer, uint32_t text_size, uintptr_t _
                 DWORD64 Patch0_addr = address + 1;
                 DWORD64 Patch0_addr_hook = Patch0_addr - (uintptr_t)Module_TarSec_RVA + (uintptr_t)_text_baseaddr;
                 *(uint8_t*)Patch0_addr = 0x8B;      //mov dword ptr ds:[?????????], ecx   -->  mov ecx, dword ptr ds:[?????????]
-                if (WriteProcessMemoryInternel(Tar_handle, (LPVOID)Patch0_addr_hook, (LPVOID)Patch0_addr, 0x1, 0) == 0)
+                if (VirtualProtect_Internal(Tar_handle, (LPVOID)Patch0_addr_hook, 1, PAGE_EXECUTE_READWRITE, 0))
                 {
-                    Show_Error_Msg(L"Write Target_Patch Fail! ");
-                    return 0;
+                    if (WriteProcessMemoryInternal(Tar_handle, (LPVOID)Patch0_addr_hook, (LPVOID)Patch0_addr, 0x1, 0) == 0)
+                    {
+                        Show_Error_Msg(L"Write Target_Patch Fail! ");
+                        return 0;
+                    }
+                    VirtualProtect_Internal(Tar_handle, (LPVOID)Patch0_addr_hook, 1, PAGE_EXECUTE_READ, 0);
+                    goto ___patcher;
                 }
-                goto ___patcher;
+                
             }
-            Module_TarSec_Size = address - Module_TarSec_RVA;
-            Module_TarSec_RVA = address + 12;
         }
-        Show_Error_Msg(L"Get patch pattern Fail! ");
+        Show_Error_Msg(L"Get pattern Fail! ");
         return 0;
     }
     //genshin_get_gameset
@@ -877,13 +879,13 @@ ___patcher:
     *(uint64_t*)(_sc_buffer + 0x18) = _ptr_fps;
 
     LPVOID __Tar_proc_buffer = 0;
-    size_t size = 0x1000;
-    __Tar_proc_buffer = VirtualAllocEx_Internel(Tar_handle, NULL, size, PAGE_EXECUTE_READWRITE);
+    __Tar_proc_buffer = VirtualAllocEx_Internal(Tar_handle, NULL, 0x1000, PAGE_READWRITE);
     
     /*
     {
         __Tar_proc_buffer = VirtualAllocEx(Tar_handle, NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    }*/
+    }
+    */
 
     if (__Tar_proc_buffer)
     {
@@ -893,36 +895,38 @@ ___patcher:
             *(uint32_t*)(_sc_buffer + 0x24) = Tar_Device;
             *(uint64_t*)(_sc_buffer + 0x38) = (uint64_t)__Tar_proc_buffer + 0x1F0;
         }
-        if (WriteProcessMemoryInternel(Tar_handle, __Tar_proc_buffer, (void*)_sc_buffer, sizeof(_shellcode_Const), 0))
+        if (WriteProcessMemoryInternal(Tar_handle, __Tar_proc_buffer, (void*)_sc_buffer, sizeof(_shellcode_Const), 0))
         {
             VirtualFree((void*)_sc_buffer, 0, MEM_RELEASE);
-            _G_shellcode_buffer = 0;
-            HANDLE temp = CreateThread_Internel(Tar_handle, 0, (LPTHREAD_START_ROUTINE)((uint64_t)__Tar_proc_buffer + sc_entryVA), NULL);
-            if (!temp)
+            if(VirtualProtect_Internal(Tar_handle, __Tar_proc_buffer, 0x1000, PAGE_EXECUTE_READ, 0))
             {
-                goto __proc_failed;
-            }
-            /*else
-            {
-                temp = CreateRemoteThread(Tar_handle, 0, 0, (LPTHREAD_START_ROUTINE)((uint64_t)__Tar_proc_buffer + sc_entryVA), 0, 0, 0);
+                HANDLE temp = CreateThread_Internal(Tar_handle, 0, (LPTHREAD_START_ROUTINE)((uint64_t)__Tar_proc_buffer + sc_entryVA), NULL);
                 if (!temp)
+                {
                     goto __proc_failed;
-            }*/
-            CloseHandle(temp);
-            return ((uint64_t)__Tar_proc_buffer);
+                }
+                /*else
+                {
+                    temp = CreateRemoteThread(Tar_handle, 0, 0, (LPTHREAD_START_ROUTINE)((uint64_t)__Tar_proc_buffer + sc_entryVA), 0, 0, 0);
+                    if (!temp)
+                        goto __proc_failed;
+                }*/
+                CloseHandle(temp);
+                return ((uint64_t)__Tar_proc_buffer);
+            }
 
         __proc_failed:
-            Show_Error_Msg(L"Create InGame SyncThread Fail! ");
+            Show_Error_Msg(L"Create SyncThread Fail! ");
             return 0;
         }
-        Show_Error_Msg(L"Inject shellcode Fail! ");
+        Show_Error_Msg(L"Write Scode Fail! ");
         VirtualFree((void*)_sc_buffer, 0, MEM_RELEASE);
         _G_shellcode_buffer = 0;
         return 0;
     }
     else 
     {
-        Show_Error_Msg(L"Alloc shellcode space Fail! ");
+        Show_Error_Msg(L"AllocEx Fail! ");
         return 0;
     }
 }
@@ -1043,6 +1047,13 @@ int main(/*int argc, char** argvA*/void)
         return -1;
     }
 
+    _G_shellcode_buffer = init_shellcode();
+    if (!_G_shellcode_buffer)
+    {
+        Show_Error_Msg(L"initcode failed!");
+        return -1;
+    }
+
     wstring* ProcessPath = NewWstring(GamePath.size() + 1);
     wstring* ProcessDir = NewWstring(GamePath.size() + 1);
     wstring* procname = NewWstring(32);
@@ -1076,7 +1087,7 @@ int main(/*int argc, char** argvA*/void)
             Show_Error_Msg(L"OpenFile Fail !");
         }
     }
-
+    
     {
 
     _wait_process_close:
@@ -1125,7 +1136,7 @@ int main(/*int argc, char** argvA*/void)
     uintptr_t Unityplayer_baseAddr = 0;
     uint32_t Text_Vsize = 0;
     {
-        _mbase_PE_buffer = VirtualAlloc_Internel(0, 0x1000, PAGE_READWRITE);
+        _mbase_PE_buffer = VirtualAlloc_Internal(0, 0x1000, PAGE_READWRITE);
         if (_mbase_PE_buffer == 0)
         {
             Show_Error_Msg(L"VirtualAlloc Failed! (PE_buffer)");
@@ -1162,7 +1173,7 @@ int main(/*int argc, char** argvA*/void)
 
 __Get_target_sec:
     // 在本进程内申请代码段大小的内存 - 用于特征搜索
-    LPVOID Copy_Text_VA = VirtualAlloc(0, Text_Vsize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    LPVOID Copy_Text_VA = VirtualAlloc_Internal(0, Text_Vsize, PAGE_READWRITE);
     if (Copy_Text_VA == NULL)
     {
         Show_Error_Msg(L"Malloc Failed! (text)");
@@ -1256,7 +1267,7 @@ __offset_ok:
 
     __Get_sec_ok:
         VirtualFree(Copy_Text_VA, 0, MEM_RELEASE);
-        Copy_Text_VA = VirtualAlloc_Internel(0, Text_Vsize, PAGE_READWRITE);
+        Copy_Text_VA = VirtualAlloc_Internal(0, Text_Vsize, PAGE_READWRITE);
         if (Copy_Text_VA == NULL)
         {
             Show_Error_Msg(L"Malloc Failed! (il2cpp_GI)");
@@ -1288,7 +1299,7 @@ __Continue:
     wprintf_s(L"PID: %d\n \nDone! \n \nUse Right Ctrl Key with ↑↓←→ key to change fps limted\n使用键盘上的右Ctrl键和方向键调节帧率限制\n\n\n  Rctrl + ↑ : +20\n  Rctrl + ↓ : -20\n  Rctrl + ← : -2\n  Rctrl + → : +2\n\n", pi->dwProcessId);
     
     // 创建printf线程
-    HANDLE temp = CreateThread_Internel((HANDLE) - 1, 0, Thread_display, 0);
+    HANDLE temp = CreateThread_Internal((HANDLE) - 1, 0, Thread_display, 0);
     if (temp)
         CloseHandle(temp);
     else

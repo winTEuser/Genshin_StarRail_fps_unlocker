@@ -323,6 +323,94 @@ WORD ParseOSBuildBumber(HMODULE ntdll)
 }
 
 
+
+static void BaseSetLastNTError_inter(DWORD Status)
+{
+    return SetLastError(RtlNtStatusToDosError(Status));
+}
+
+static BOOLEAN WINAPI VirtualProtect_Internal(HANDLE procHandle, LPVOID baseAddr, size_t size, DWORD protect, DWORD* oldp)
+{
+    DWORD oldpt = 0;
+    if (!oldp)
+    {
+        oldp = &oldpt;
+    }
+    if (size & 0xFFF)
+    {
+        size += 0x1000;
+        size &= 0xFFFFFFFFF000;
+    }
+    NTSTATUS ret = NtProtectVirtualMemory(procHandle, &baseAddr, &size, protect, oldp);
+    if (ret)
+    {
+        BaseSetLastNTError_inter(ret);
+        return 0;
+    }
+    return 1;
+}
+
+
+static PVOID WINAPI VirtualAllocEx_Internal(HANDLE procHandle, PVOID* dst_baseaddr, size_t size, DWORD protect)
+{
+    void* baseaddr = 0;
+    if (!dst_baseaddr)
+        dst_baseaddr = &baseaddr;
+    NTSTATUS ret = ZwAllocateVirtualMemory(procHandle, dst_baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
+    if (ret)
+    {
+        BaseSetLastNTError_inter(ret);
+        return 0;
+    }
+    return baseaddr;
+}
+
+static PVOID WINAPI VirtualAlloc_Internal(PVOID* dst_baseaddr, size_t size, DWORD protect)
+{
+    void* baseaddr = 0;
+    if (!dst_baseaddr)
+        dst_baseaddr = &baseaddr;
+    NTSTATUS ret = ZwAllocateVirtualMemory((HANDLE)-1, dst_baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
+    if (ret)
+    {
+        BaseSetLastNTError_inter(ret);
+        return 0;
+    }
+    return baseaddr;
+}
+
+
+static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, LPVOID dst_baseaddr, LPVOID src_buffer, size_t size, size_t* writenum)
+{
+    size_t tsize = 0;
+    NTSTATUS ret = ZwWriteVirtualMemory(procHandle, dst_baseaddr, src_buffer, size, &tsize);
+    if (ret)
+    {
+        BaseSetLastNTError_inter(ret);
+        return 0;
+    }
+    if (writenum)
+    {
+        *writenum = tsize;
+    }
+    return 1;
+}
+
+
+static HANDLE WINAPI CreateThread_Internal(HANDLE procHandle, LPSECURITY_ATTRIBUTES lpThreadAttributes, LPTHREAD_START_ROUTINE lpStartAddress, LPVOID lpParameter)
+{
+    HANDLE retHandle = 0;
+
+    NTSTATUS status = ZwCreateThreadEx(&retHandle, 0x1FFFF, 0, procHandle, lpStartAddress, lpParameter, 0, 0, 0xC000, 0x30000, 0);
+    if (status)
+    {
+        BaseSetLastNTError_inter(status);
+        return 0;
+    }
+    return retHandle;
+}
+
+
 static void writebyte(void* dst, BYTE num)
 {
     size_t i = 0;
@@ -576,7 +664,7 @@ static NTSTATUS init_NTAPI()
             {
                 init_syscall_buff(buff);
                 DWORD oldp;
-                NtProtectVirtualMemory((HANDLE)-1, &buff, &i, PAGE_EXECUTE_READ, &oldp);
+                return NtProtectVirtualMemory((HANDLE)-1, &buff, &i, PAGE_EXECUTE_READ, &oldp);
             }
             return ERROR_SUCCESS;
         }
@@ -704,89 +792,6 @@ static NTSTATUS init_NTAPI()
         return GetLastError();
     }
     return ERROR_SUCCESS;
-}
-
-static void BaseSetLastNTError_inter(DWORD Status)
-{
-    return SetLastError(RtlNtStatusToDosError(Status));
-}
-
-static BOOLEAN WINAPI VirtualProtect_Internel(HANDLE procHandle, LPVOID baseAddr, size_t size, DWORD protect, DWORD* oldp)
-{
-    DWORD oldpt = 0;
-    if (!oldp)
-    {
-        oldp = &oldpt;
-    }
-    size += 0x1000;
-    size & 0xFFFFFFFFF000;
-    NTSTATUS ret = NtProtectVirtualMemory(procHandle, &baseAddr, &size, protect, oldp);
-    if (ret)
-    {
-        BaseSetLastNTError_inter(ret);
-        return 0;
-    }
-    return 1;
-}
-
-
-static PVOID WINAPI VirtualAllocEx_Internel(HANDLE procHandle, PVOID* dst_baseaddr, size_t size, DWORD protect)
-{
-    void* baseaddr = 0;
-    if (!dst_baseaddr)
-        dst_baseaddr = &baseaddr;
-    NTSTATUS ret = ZwAllocateVirtualMemory(procHandle, dst_baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
-    if (ret)
-    {
-        BaseSetLastNTError_inter(ret);
-        return 0;
-    }
-    return baseaddr;
-}
-
-static PVOID WINAPI VirtualAlloc_Internel(PVOID* dst_baseaddr, size_t size, DWORD protect)
-{
-    void* baseaddr = 0;
-    if (!dst_baseaddr)
-        dst_baseaddr = &baseaddr;
-    NTSTATUS ret = ZwAllocateVirtualMemory((HANDLE) - 1, dst_baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
-    if (ret)
-    {
-        BaseSetLastNTError_inter(ret);
-        return 0;
-    }
-    return baseaddr;
-}
-
-
-static BOOLEAN WINAPI WriteProcessMemoryInternel(HANDLE procHandle, LPVOID dst_baseaddr, LPVOID src_buffer, size_t size, size_t* writenum)
-{
-    size_t tsize = 0;
-    NTSTATUS ret = ZwWriteVirtualMemory(procHandle, dst_baseaddr, src_buffer, size, &tsize);
-    if (ret)
-    {
-        BaseSetLastNTError_inter(ret);
-        return 0;
-    }
-    if (writenum)
-    {
-        *writenum = tsize;
-    }
-    return 1;
-}
-
-
-static HANDLE WINAPI CreateThread_Internel(HANDLE procHandle, LPSECURITY_ATTRIBUTES lpThreadAttributes, LPTHREAD_START_ROUTINE lpStartAddress, LPVOID lpParameter)
-{
-    HANDLE retHandle = 0;
-
-    NTSTATUS status = ZwCreateThreadEx(&retHandle, 0x1FFFF, 0, procHandle, lpStartAddress, lpParameter, 0, 0, 0xC000, 0x30000, 0);
-    if (status)
-    {
-        BaseSetLastNTError_inter(status);
-        return 0;
-    }
-    return retHandle;
 }
 
 
