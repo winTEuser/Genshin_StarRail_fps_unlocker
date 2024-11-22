@@ -24,6 +24,7 @@
 #include <intrin.h>
 #include "fastmemcp.h"
 #include "inireader.h"
+#include "NTSYSCALLAPI.h"
 
 
 #ifndef _WIN64
@@ -32,10 +33,10 @@
 
 using namespace std;
 
+
 bool is_supportAVX = Is_supportAVX();
 
 static INLINE BYTE* init_shellcode();
-
 BYTE* _G_shellcode_buffer = init_shellcode();
 
 wstring HKSRGamePath{};
@@ -58,7 +59,7 @@ BYTE ConfigPriorityClass = 1;
 uint32_t GamePriorityClass = NORMAL_PRIORITY_CLASS;
 
 const uint32_t sc_entryVA = 0x1C0;
-const BYTE _shellcode_Const[] =
+const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
 {
     0x00, 0x00, 0x00, 0x00,                              //uint32_t unlocker_pid              _shellcode_[0]
     0x20, 0xDF, 0x2F, 0x67,                              //uint32_t timestamp                 _shellcode_[4]
@@ -840,7 +841,7 @@ static uint64_t inject_patch(LPVOID text_buffer, uint32_t text_size, uintptr_t _
                 DWORD64 Patch0_addr = address + 1;
                 DWORD64 Patch0_addr_hook = Patch0_addr - (uintptr_t)Module_TarSec_RVA + (uintptr_t)_text_baseaddr;
                 *(uint8_t*)Patch0_addr = 0x8B;      //mov dword ptr ds:[?????????], ecx   -->  mov ecx, dword ptr ds:[?????????]
-                if (WriteProcessMemory(Tar_handle, (LPVOID)Patch0_addr_hook, (LPVOID)Patch0_addr, 0x1, 0) == 0)
+                if (WriteProcessMemoryInternel(Tar_handle, (LPVOID)Patch0_addr_hook, (LPVOID)Patch0_addr, 0x1, 0) == 0)
                 {
                     Show_Error_Msg(L"Write Target_Patch Fail! ");
                     return 0;
@@ -874,8 +875,16 @@ static uint64_t inject_patch(LPVOID text_buffer, uint32_t text_size, uintptr_t _
 ___patcher:
     *(uint64_t*)(_sc_buffer + 0x8) = (uint64_t)(&FpsValue); //source ptr
     *(uint64_t*)(_sc_buffer + 0x18) = _ptr_fps;
+
+    LPVOID __Tar_proc_buffer = 0;
+    size_t size = 0x1000;
+    __Tar_proc_buffer = VirtualAllocEx_Internel(Tar_handle, NULL, size, PAGE_EXECUTE_READWRITE);
     
-    LPVOID __Tar_proc_buffer = VirtualAllocEx(Tar_handle, NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READ);
+    /*
+    {
+        __Tar_proc_buffer = VirtualAllocEx(Tar_handle, NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    }*/
+
     if (__Tar_proc_buffer)
     {
         if (Ptr_Rva)
@@ -884,19 +893,27 @@ ___patcher:
             *(uint32_t*)(_sc_buffer + 0x24) = Tar_Device;
             *(uint64_t*)(_sc_buffer + 0x38) = (uint64_t)__Tar_proc_buffer + 0x1F0;
         }
-        if (WriteProcessMemory(Tar_handle, __Tar_proc_buffer, (void*)_sc_buffer, sizeof(_shellcode_Const), 0))
+        if (WriteProcessMemoryInternel(Tar_handle, __Tar_proc_buffer, (void*)_sc_buffer, sizeof(_shellcode_Const), 0))
         {
             VirtualFree((void*)_sc_buffer, 0, MEM_RELEASE);
             _G_shellcode_buffer = 0;
-            HANDLE temp = CreateRemoteThread(Tar_handle, 0, 0, (LPTHREAD_START_ROUTINE)((uint64_t)__Tar_proc_buffer + sc_entryVA), 0, 0, 0);
-            if (temp)
-                CloseHandle(temp);
-            else 
+            HANDLE temp = CreateThread_Internel(Tar_handle, 0, (LPTHREAD_START_ROUTINE)((uint64_t)__Tar_proc_buffer + sc_entryVA), NULL);
+            if (!temp)
             {
-                Show_Error_Msg(L"Create InGame SyncThread Fail! ");
-                return 0; 
+                goto __proc_failed;
             }
+            /*else
+            {
+                temp = CreateRemoteThread(Tar_handle, 0, 0, (LPTHREAD_START_ROUTINE)((uint64_t)__Tar_proc_buffer + sc_entryVA), 0, 0, 0);
+                if (!temp)
+                    goto __proc_failed;
+            }*/
+            CloseHandle(temp);
             return ((uint64_t)__Tar_proc_buffer);
+
+        __proc_failed:
+            Show_Error_Msg(L"Create InGame SyncThread Fail! ");
+            return 0;
         }
         Show_Error_Msg(L"Inject shellcode Fail! ");
         VirtualFree((void*)_sc_buffer, 0, MEM_RELEASE);
@@ -1004,8 +1021,7 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
     FullScreen();
-
-    LPWSTR Command_arg = (LPWSTR)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    LPWSTR Command_arg = (LPWSTR)malloc(0x1000);
     if (!Command_arg)
     {
         Show_Error_Msg(L"Malloc failed!");
@@ -1020,6 +1036,12 @@ int main(/*int argc, char** argvA*/void)
 
     if (GamePath.length() < 8)
         return -1;
+
+    if (init_NTAPI())
+    {
+        Show_Error_Msg(L"initAPI failed!");
+        return -1;
+    }
 
     wstring* ProcessPath = NewWstring(GamePath.size() + 1);
     wstring* ProcessDir = NewWstring(GamePath.size() + 1);
@@ -1072,7 +1094,7 @@ int main(/*int argc, char** argvA*/void)
             goto _wait_process_close;
         }
     }
-
+    
     DWORD Hksr_ui_Rva = 0;
     if ((isGenshin == 0) && Use_mobile_UI)
     {
@@ -1103,7 +1125,7 @@ int main(/*int argc, char** argvA*/void)
     uintptr_t Unityplayer_baseAddr = 0;
     uint32_t Text_Vsize = 0;
     {
-        _mbase_PE_buffer = VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        _mbase_PE_buffer = VirtualAlloc_Internel(0, 0x1000, PAGE_READWRITE);
         if (_mbase_PE_buffer == 0)
         {
             Show_Error_Msg(L"VirtualAlloc Failed! (PE_buffer)");
@@ -1234,7 +1256,7 @@ __offset_ok:
 
     __Get_sec_ok:
         VirtualFree(Copy_Text_VA, 0, MEM_RELEASE);
-        Copy_Text_VA = VirtualAlloc(0, Text_Vsize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        Copy_Text_VA = VirtualAlloc_Internel(0, Text_Vsize, PAGE_READWRITE);
         if (Copy_Text_VA == NULL)
         {
             Show_Error_Msg(L"Malloc Failed! (il2cpp_GI)");
@@ -1266,7 +1288,7 @@ __Continue:
     wprintf_s(L"PID: %d\n \nDone! \n \nUse Right Ctrl Key with ↑↓←→ key to change fps limted\n使用键盘上的右Ctrl键和方向键调节帧率限制\n\n\n  Rctrl + ↑ : +20\n  Rctrl + ↓ : -20\n  Rctrl + ← : -2\n  Rctrl + → : +2\n\n", pi->dwProcessId);
     
     // 创建printf线程
-    HANDLE temp = CreateThread(0, 0, Thread_display, 0, 0, 0);
+    HANDLE temp = CreateThread_Internel((HANDLE) - 1, 0, Thread_display, 0);
     if (temp)
         CloseHandle(temp);
     else
@@ -1277,7 +1299,7 @@ __Continue:
     uint32_t cycle_counter = 0;
     while (1)   // handle key input
     {
-        Sleep(100);
+        Sleep(50);
         cycle_counter++;
         GetExitCodeProcess(pi->hProcess, &dwExitCode);
         if (dwExitCode != STILL_ACTIVE)
@@ -1330,6 +1352,5 @@ __Continue:
 
 
 
-//git utf convert test +1
 
 
