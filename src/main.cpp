@@ -359,7 +359,7 @@ static void Show_Error_Msg(LPCWSTR Prompt_str)
 }
 
 //create pwstr 1 len = 2 byte
-static wstring* NewWstring(size_t len)
+static wstring* NewWstring(size_t strlen)
 {
     uintptr_t* wcsptr = (uintptr_t*)malloc(sizeof(wstring));
     if (!wcsptr)
@@ -367,21 +367,21 @@ static wstring* NewWstring(size_t len)
         goto __malloc_fail;
     }
     memset(wcsptr, 0, sizeof(wstring));
-    if (len < 7)
+    if (strlen < 7)
     {
         *(size_t*)((uintptr_t)wcsptr + 0x10 + sizeof(uintptr_t)) = 7;
         return (wstring*)wcsptr;
     }
     else
     {
-        wchar_t* wcstr = (wchar_t*)malloc(len * 2);
+        wchar_t* wcstr = (wchar_t*)malloc(strlen * 2);
         if (!wcstr)
         {
             goto __malloc_fail;
         }
         *(uint64_t*)wcstr = 0;
         *(uintptr_t*)wcsptr = (uintptr_t)wcstr;
-        *(size_t*)((uintptr_t)wcsptr + 0x10 + sizeof(uintptr_t)) = len;
+        *(size_t*)((uintptr_t)wcsptr + 0x10 + sizeof(uintptr_t)) = strlen;
         return (wstring*)wcsptr;
     }
 
@@ -1019,6 +1019,9 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
     FullScreen();
+
+    wprintf_s(L"FPS unlocker 2.8.4\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
+
     LPWSTR Command_arg = (LPWSTR)malloc(0x1000);
     if (!Command_arg)
     {
@@ -1053,8 +1056,7 @@ int main(/*int argc, char** argvA*/void)
     wstring* procname = NewWstring(32);
 
     *ProcessPath = GamePath;
-    
-    wprintf_s(L"FPS unlocker 2.8.3\n\nThis program is OpenSource in https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nGamePath: %s \n", ProcessPath->c_str());
+    wprintf_s(L"\nGamePath: %s \n\n", GamePath.c_str());
     if(isGenshin == 0)
     {
         wprintf_s(L"When V-sync is opened, you need open setting then quit to apply change in StarRail.\n当垂直同步开启时解锁帧率需要进设置界面再退出才可应用\n");

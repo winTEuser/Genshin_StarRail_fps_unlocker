@@ -191,6 +191,18 @@ _NtQueryVirtualMemory_Win64 NtQueryVirtualMemory = 0;
 _RtlNtStatusToDosError_Win64 RtlNtStatusToDosError = 0;
 
 
+
+
+static void writebyte(void* dst, BYTE num)
+{
+    size_t i = 0;
+    while (*((BYTE*)dst + i) != 0)
+    {
+        i++;
+    }
+    *((BYTE*)dst + i) = num;
+}
+
 //copy from vmp
 __declspec(noinline) const wchar_t* FindFileVersion(const BYTE* ptr, size_t data_size) {
     const wchar_t* data = reinterpret_cast<const wchar_t*>(ptr);
@@ -211,9 +223,25 @@ __declspec(noinline) const wchar_t* FindFileVersion(const BYTE* ptr, size_t data
     return NULL;
 }
 
-//ntdll bug
-WORD ParseOSBuildBumber(HMODULE ntdll)
+//ntdll filever
+WORD ParseOSBuildBumber()
 {
+    HMODULE ntdll = 0;
+    {
+        char str_ntdll[16] = { 0 };
+        writebyte(str_ntdll, 'n');
+        writebyte(str_ntdll, 't');
+        writebyte(str_ntdll, 'd');
+        writebyte(str_ntdll, 'l');
+        writebyte(str_ntdll, 'l');
+        writebyte(str_ntdll, '.');
+        writebyte(str_ntdll, 'd');
+        writebyte(str_ntdll, 'l');
+        writebyte(str_ntdll, 'l');
+        ntdll = LoadLibraryA(str_ntdll);
+    }
+    if (!ntdll)
+        return 0;
     WORD os_build_number = 0;
     IMAGE_DOS_HEADER* dos_header = reinterpret_cast<IMAGE_DOS_HEADER*>(ntdll);
     if (dos_header->e_magic == IMAGE_DOS_SIGNATURE) 
@@ -248,10 +276,6 @@ WORD ParseOSBuildBumber(HMODULE ntdll)
                             break;
                         }
                     }
-
-                    if (os_build_number)
-                        break;
-
                     resource_start = reinterpret_cast<const BYTE*>(file_version);
                 }
             }
@@ -260,7 +284,183 @@ WORD ParseOSBuildBumber(HMODULE ntdll)
     return os_build_number;
 }
 
+int vm_strcmp(const char* str1, const char* str2)
+{
+    unsigned char c1;
+    unsigned char c2;
+    size_t pos = 0;
+    do {
+        c1 = *(str1++);
+        c2 = *(str2++);/*
+        if (is_enc) {
+            c1 ^= (_rotl32(FACE_STRING_DECRYPT_KEY, static_cast<int>(pos)) + pos);
+            pos++;
+        }*/
+        if (!c1)
+            break;
+    } while (c1 == c2);
 
+    if (c1 < c2)
+        return -1;
+    else if (c1 > c2)
+        return 1;
+    return 0;
+}
+
+void* GetProcAddress_Internal(HMODULE module, const char* proc_name)
+{
+    // check input
+    if (!module || !proc_name)
+        return NULL;
+
+    // check module's header
+    IMAGE_DOS_HEADER* dos_header = reinterpret_cast<IMAGE_DOS_HEADER*>(module);
+    if (dos_header->e_magic != IMAGE_DOS_SIGNATURE)
+        return NULL;
+
+    // check NT header
+    IMAGE_NT_HEADERS* pe_header = reinterpret_cast<IMAGE_NT_HEADERS*>(reinterpret_cast<uint8_t*>(module) + dos_header->e_lfanew);
+    if (pe_header->Signature != IMAGE_NT_SIGNATURE)
+        return NULL;
+
+    // get the export directory
+    uint32_t export_adress = pe_header->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+    if (!export_adress)
+        return NULL;
+
+    uint32_t export_size = pe_header->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+    uint32_t address;
+    uint32_t ordinal_index = -1;
+    IMAGE_EXPORT_DIRECTORY* export_directory = reinterpret_cast<IMAGE_EXPORT_DIRECTORY*>(reinterpret_cast<uint8_t*>(module) + export_adress);
+
+    if (proc_name <= reinterpret_cast<const char*>(0xFFFF)) 
+    {
+        // ordinal
+        ordinal_index = static_cast<uint32_t>(INT_PTR(proc_name)) - export_directory->Base;
+        // index is either less than base or bigger than number of functions
+        if (ordinal_index >= export_directory->NumberOfFunctions)
+            return NULL;
+        // get the function offset by the ordinal
+        address = (reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(module) + export_directory->AddressOfFunctions))[ordinal_index];
+        // check for empty offset
+        if (!address)
+            return NULL;
+    }
+    else 
+    {
+        // name of function
+        if (export_directory->NumberOfNames) 
+        {
+            // start binary search
+            int left_index = 0;
+            int right_index = export_directory->NumberOfNames - 1;
+            uint32_t* names = reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(module) + export_directory->AddressOfNames);
+            while (left_index <= right_index) 
+            {
+                uint32_t cur_index = (left_index + right_index) >> 1;
+                switch (vm_strcmp(proc_name, (const char*)(reinterpret_cast<uint8_t*>(module) + names[cur_index]))) 
+                {
+                case 0:
+                    ordinal_index = (reinterpret_cast<WORD*>(reinterpret_cast<uint8_t*>(module) + export_directory->AddressOfNameOrdinals))[cur_index];
+                    left_index = right_index + 1;
+                    break;
+                case -1:
+                    right_index = cur_index - 1;
+                    break;
+                case 1:
+                    left_index = cur_index + 1;
+                    break;
+                }
+            }
+        }
+        // if nothing has been found
+        if (ordinal_index >= export_directory->NumberOfFunctions)
+            return NULL;
+        // get the function offset by the ordinal
+        address = (reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(module) + export_directory->AddressOfFunctions))[ordinal_index];
+        if (!address)
+            return NULL;
+    }
+
+    // if it is just a pointer - return it
+    if (address < export_adress || address >= export_adress + export_size)
+        return reinterpret_cast<FARPROC>(reinterpret_cast<uint8_t*>(module) + address);
+
+    // it is a forward
+    const char* name = reinterpret_cast<const char*>(reinterpret_cast<uint8_t*>(module) + address); // get a pointer to the module's name
+    const char* tmp = name;
+    const char* name_dot = NULL;
+    // get a pointer to the function's name
+    while (*tmp) 
+    {
+        if (*tmp == '.') 
+        {
+            name_dot = tmp;
+            break;
+        }
+        tmp++;
+    }
+    if (!name_dot)
+        return NULL;
+
+    size_t name_len = name_dot - name;
+    if (name_len >= MAX_PATH)
+        return NULL;
+
+    // copy module name
+    char file_name[MAX_PATH]{0};
+    size_t i;
+    for (i = 0; i < name_len && name[i] != 0; i++) 
+    {
+        file_name[i] = name[i];
+    }
+    file_name[i] = 0;
+
+    HMODULE tmp_module = GetModuleHandleA(file_name);
+
+    if (!tmp_module)
+        tmp_module = LoadLibraryA(file_name);
+
+    if (!tmp_module)
+        return NULL;
+
+    if (tmp_module == module) 
+    {
+        // forwarded to itself
+        /*if (is_enc) 
+        {
+            for (i = 0; i < sizeof(file_name); i++) 
+            {
+                char c = proc_name[i];
+                c ^= (_rotl32(FACE_STRING_DECRYPT_KEY, static_cast<int>(i)) + i);
+                file_name[i] = c;
+                if (!c)
+                    break;
+            }
+            proc_name = file_name;
+        }*/
+        return GetProcAddress(module, proc_name);
+    }
+
+    // now the function's name
+    // if it is not an ordinal, just forward it
+    if (name_dot[1] != '#')
+        return GetProcAddress_Internal(tmp_module, name_dot + 1);
+
+    // it is an ordinal
+    tmp = name_dot + 2;
+    int ordinal = 0;
+    while (*tmp) 
+    {
+        char c = *(tmp++);
+        if (c >= '0' && c <= '9') 
+            ordinal = ordinal * 10 + c - '0';
+        else 
+            break;
+        
+    }
+    return GetProcAddress_Internal(tmp_module, reinterpret_cast<const char*>(INT_PTR(ordinal)));
+}
 
 static void BaseSetLastNTError_inter(DWORD Status)
 {
@@ -372,17 +572,6 @@ static HANDLE WINAPI CreateThread_Internal(HANDLE procHandle, LPSECURITY_ATTRIBU
 }
 
 
-static void writebyte(void* dst, BYTE num)
-{
-    size_t i = 0;
-    while (*((BYTE*)dst + i) != 0)
-    {
-        i++;
-    }
-    *((BYTE*)dst + i) = num;
-}
-
-
 static __forceinline void init_syscall_buff(void* buff, DWORD sc_CTEx, DWORD sc_alloc, DWORD sc_ptm, DWORD sc_writemem, DWORD sc_querymem)
 {
     memset(buff, 0xCC, 0x200);
@@ -426,15 +615,16 @@ static NTSTATUS init_NTAPI()
     }
     if (!ntdll)
         return STATUS_DLL_NOT_FOUND;
+
+
 #ifdef DirectCall
     PEB64* peb = reinterpret_cast<PEB64*>(__readgsqword(0x60));  
-    //uint16_t OSver = ParseOSBuildBumber(ntdll);
+    //uint16_t OSver = ParseOSBuildBumber(ntdll);以peb版本为准
     WORD OSver = peb->OSBuildNumber;
     bool init_OSver = 0;
     if (OSver)
     {
         DWORD sc_CreateThreadEx = 0;
-        //DWORD sc_CreateThread = 0;
         DWORD sc_AllocMem = 0;
         DWORD sc_WriteMem = 0;
         DWORD sc_ProtectMem = 0;
@@ -559,7 +749,6 @@ static NTSTATUS init_NTAPI()
         else if (OSver == WINDOWS_8_1)
         {
             sc_CreateThreadEx = 0xb0;
-            //sc_CreateThread = 0x4d;
             sc_AllocMem = 0x17;
             sc_WriteMem = 0x39;
             sc_ProtectMem = 0x4f;
@@ -569,7 +758,6 @@ static NTSTATUS init_NTAPI()
         else if (OSver == WINDOWS_8)
         {
             sc_CreateThreadEx = 0xaf;
-            //sc_CreateThread = 0x4c;
             sc_AllocMem = 0x16;
             sc_WriteMem = 0x38;
             sc_ProtectMem = 0x4e;
@@ -579,7 +767,6 @@ static NTSTATUS init_NTAPI()
         else if (OSver == WINDOWS_7_SP1 || OSver == WINDOWS_7)
         {
             sc_CreateThreadEx = 0xa5;
-            //sc_CreateThread = 0x4b;
             sc_AllocMem = 0x15;
             sc_WriteMem = 0x37;
             sc_ProtectMem = 0x4d;
@@ -589,7 +776,6 @@ static NTSTATUS init_NTAPI()
         else if (OSver == WINDOWS_VISTA_SP2)
         {
             sc_CreateThreadEx = 0xa5;
-            //sc_CreateThread = 0x4b;
             sc_AllocMem = 0x15;
             sc_WriteMem = 0x37;
             sc_ProtectMem = 0x4d;
@@ -599,7 +785,6 @@ static NTSTATUS init_NTAPI()
         else if (OSver == WINDOWS_VISTA_SP1)
         {
             sc_CreateThreadEx = 0xa5;
-            //sc_CreateThread = 0x4b;
             sc_AllocMem = 0x15;
             sc_WriteMem = 0x37;
             sc_ProtectMem = 0x4d;
@@ -609,7 +794,6 @@ static NTSTATUS init_NTAPI()
         else if (OSver == WINDOWS_VISTA)
         {
             sc_CreateThreadEx = 0xa7;
-            //sc_CreateThread = 0x4b;
             sc_AllocMem = 0x15;
             sc_WriteMem = 0x37;
             sc_ProtectMem = 0x4d;
@@ -638,10 +822,10 @@ static NTSTATUS init_NTAPI()
                 return ret;
             }
 
-            RtlNtStatusToDosError = (_RtlNtStatusToDosError_Win64)GetProcAddress(ntdll, "RtlNtStatusToDosError");
+            RtlNtStatusToDosError = (_RtlNtStatusToDosError_Win64)GetProcAddress_Internal(ntdll, "RtlNtStatusToDosError");
             if (!RtlNtStatusToDosError)
             {
-                return GetLastError();
+                return 0xC5;
             }
             return ERROR_SUCCESS;
         }
@@ -666,11 +850,11 @@ static NTSTATUS init_NTAPI()
         writebyte(str_zct, 'd');
         writebyte(str_zct, 'E');
         writebyte(str_zct, 'x');
-        ZwCreateThreadEx = (_ZwCreateThreadEx_Win64)GetProcAddress(ntdll, str_zct);
+        ZwCreateThreadEx = (_ZwCreateThreadEx_Win64)GetProcAddress_Internal(ntdll, str_zct);
     }
     if (!ZwCreateThreadEx)
     {
-        return GetLastError();
+        return 0xC1;
     }
     {
         char str_alloc[32] = { 0 };
@@ -697,11 +881,11 @@ static NTSTATUS init_NTAPI()
         writebyte(str_alloc, 'o');
         writebyte(str_alloc, 'r');
         writebyte(str_alloc, 'y');
-        ZwAllocateVirtualMemory = (_ZwAllocateVirtualMemory_Win64)GetProcAddress(ntdll, str_alloc);
+        ZwAllocateVirtualMemory = (_ZwAllocateVirtualMemory_Win64)GetProcAddress_Internal(ntdll, str_alloc);
     }
     if (!ZwAllocateVirtualMemory)
     {
-        return GetLastError();
+        return 0xC2;
     }
     {
         char str_wrtMem[32] = { 0 };
@@ -725,11 +909,11 @@ static NTSTATUS init_NTAPI()
         writebyte(str_wrtMem, 'o');
         writebyte(str_wrtMem, 'r');
         writebyte(str_wrtMem, 'y');
-        ZwWriteVirtualMemory = (_ZwWriteVirtualMemory_Win64)GetProcAddress(ntdll, str_wrtMem);
+        ZwWriteVirtualMemory = (_ZwWriteVirtualMemory_Win64)GetProcAddress_Internal(ntdll, str_wrtMem);
     }
     if (!ZwWriteVirtualMemory)
     {
-        return GetLastError();
+        return 0xC3;
     }
     {
         char str_protectMem[32] = { 0 };
@@ -755,17 +939,17 @@ static NTSTATUS init_NTAPI()
         writebyte(str_protectMem, 'o');
         writebyte(str_protectMem, 'r');
         writebyte(str_protectMem, 'y');
-        NtProtectVirtualMemory = (_NtProtectVirtualMemory_Win64)GetProcAddress(ntdll, str_protectMem);
+        NtProtectVirtualMemory = (_NtProtectVirtualMemory_Win64)GetProcAddress_Internal(ntdll, str_protectMem);
     }
     if (!NtProtectVirtualMemory)
     {
-        return GetLastError();
+        return 0xC4;
     }
     
-    RtlNtStatusToDosError = (_RtlNtStatusToDosError_Win64)GetProcAddress(ntdll, "RtlNtStatusToDosError");
+    RtlNtStatusToDosError = (_RtlNtStatusToDosError_Win64)GetProcAddress_Internal(ntdll, "RtlNtStatusToDosError");
     if (!RtlNtStatusToDosError)
     {
-        return GetLastError();
+        return 0xC5;
     }
     return ERROR_SUCCESS;
 }
