@@ -14,6 +14,8 @@
 extern "C" NTSTATUS NTAPI asm_syscall();
 extern "C" void NTAPI asm_initpsc(DWORD* scnum);
 
+const BYTE buffer_call[0x200] = { 0 };
+
 DWORD sc_number = 0;
 
 typedef struct _UNICODE_STRING {
@@ -114,11 +116,11 @@ typedef NTSTATUS(NTAPI* _NtProtectVirtualMemory_Win64)(
     );
 
 typedef NTSTATUS(NTAPI* _NtQueryVirtualMemory_Win64)(
-    HANDLE ProcessHandle, 
-    PVOID BaseAddress, 
+    HANDLE  ProcessHandle, 
+    PVOID   BaseAddress, 
     MEMORY_INFORMATION_CLASS MemoryInformationClass, 
-    PVOID MemoryInformation, 
-    SIZE_T MemoryInformationLength, 
+    PVOID   MemoryInformation, 
+    SIZE_T  MemoryInformationLength, 
     PSIZE_T ReturnLength
     );
 
@@ -139,52 +141,6 @@ typedef NTSTATUS(NTAPI* _NtMapViewOfSection_Win64)(
 
 typedef DWORD(NTAPI* _RtlNtStatusToDosError_Win64)(DWORD Status);
 
-
-_ZwCreateThreadEx_Win64 ZwCreateThreadEx = 0;
-//_NtCreateThread_Win64 NtCreateThread = 0;
-_ZwAllocateVirtualMemory_Win64 ZwAllocateVirtualMemory = 0;
-_ZwWriteVirtualMemory_Win64 ZwWriteVirtualMemory = 0;
-_NtProtectVirtualMemory_Win64 NtProtectVirtualMemory = 0;
-_RtlNtStatusToDosError_Win64 RtlNtStatusToDosError = 0;
-
-DWORD scNum_CreateThreadEx = 0;
-//DWORD scNum_CreateThread = 0;
-DWORD scNum_AllocMem = 0;
-DWORD scNum_WriteMem = 0;
-DWORD scNum_ProtectMem = 0;
-
-
-static NTSTATUS NTAPI ZwCreateThreadEx_internel()
-{
-    sc_number = scNum_CreateThreadEx;
-    return asm_syscall();
-}
-
-//static NTSTATUS NTAPI NtCreateThread_internel()
-//{
-//    sc_number = scNum_CreateThread;
-//    return asm_syscall();
-//}
-
-static NTSTATUS NTAPI ZwAllocateVirtualMemory_internel()
-{
-    sc_number = scNum_AllocMem;
-    return asm_syscall();
-}
-
-static NTSTATUS NTAPI ZwWriteVirtualMemory_internel()
-{
-    sc_number = scNum_WriteMem;
-    return asm_syscall();
-}
-
-static NTSTATUS NTAPI NtProtectVirtualMemory_internel()
-{
-    sc_number = scNum_ProtectMem;
-    return asm_syscall();
-}
-
-//copy from vmp
 enum {
     WINDOWS_XP = 2600,
     WINDOWS_2003 = 3790,
@@ -215,35 +171,6 @@ enum {
     WINDOWS_11_24H2 = 26100,
 };
 
-#define IS_KNOWN_WINDOWS_BUILD(b) ( \
-	(b) == WINDOWS_XP || \
-	(b) == WINDOWS_2003 || \
-	(b) == WINDOWS_VISTA || \
-	(b) == WINDOWS_VISTA_SP1 || \
-	(b) == WINDOWS_VISTA_SP2 || \
-	(b) == WINDOWS_7 || \
-	(b) == WINDOWS_7_SP1 || \
-	(b) == WINDOWS_8 || \
-	(b) == WINDOWS_8_1 || \
-	(b) == WINDOWS_10_TH1 || \
-	(b) == WINDOWS_10_TH2 || \
-	(b) == WINDOWS_10_RS1 || \
-	(b) == WINDOWS_10_RS2 || \
-	(b) == WINDOWS_10_RS3 || \
-	(b) == WINDOWS_10_RS4 || \
-	(b) == WINDOWS_10_RS5 || \
-	(b) == WINDOWS_10_19H1 || \
-	(b) == WINDOWS_10_19H2 || \
-	(b) == WINDOWS_10_20H1 || \
-	(b) == WINDOWS_10_20H2 || \
-	(b) == WINDOWS_10_21H1 || \
-	(b) == WINDOWS_10_21H2 || \
-	(b) == WINDOWS_10_22H2 || \
-    (b) == WINDOWS_11_21H2 || \
-    (b) == WINDOWS_11_22H2 || \
-    (b) == WINDOWS_11_23H2 || \
-    (b) == WINDOWS_11_24H2 \
-)
 
 typedef struct _PEB64 {
     BYTE Reserved1[2];
@@ -254,6 +181,17 @@ typedef struct _PEB64 {
     USHORT OSBuildNumber;
 } PEB64;
 
+
+_ZwCreateThreadEx_Win64 ZwCreateThreadEx = 0;
+//_NtCreateThread_Win64 NtCreateThread = 0;
+_ZwAllocateVirtualMemory_Win64 ZwAllocateVirtualMemory = 0;
+_ZwWriteVirtualMemory_Win64 ZwWriteVirtualMemory = 0;
+_NtProtectVirtualMemory_Win64 NtProtectVirtualMemory = 0;
+_NtQueryVirtualMemory_Win64 NtQueryVirtualMemory = 0;
+_RtlNtStatusToDosError_Win64 RtlNtStatusToDosError = 0;
+
+
+//copy from vmp
 __declspec(noinline) const wchar_t* FindFileVersion(const BYTE* ptr, size_t data_size) {
     const wchar_t* data = reinterpret_cast<const wchar_t*>(ptr);
     data_size /= sizeof(wchar_t);
@@ -273,7 +211,7 @@ __declspec(noinline) const wchar_t* FindFileVersion(const BYTE* ptr, size_t data
     return NULL;
 }
 
-//need fix
+//ntdll bug
 WORD ParseOSBuildBumber(HMODULE ntdll)
 {
     WORD os_build_number = 0;
@@ -311,7 +249,7 @@ WORD ParseOSBuildBumber(HMODULE ntdll)
                         }
                     }
 
-                    if (IS_KNOWN_WINDOWS_BUILD(os_build_number))
+                    if (os_build_number)
                         break;
 
                     resource_start = reinterpret_cast<const BYTE*>(file_version);
@@ -331,17 +269,19 @@ static void BaseSetLastNTError_inter(DWORD Status)
 
 static BOOLEAN WINAPI VirtualProtect_Internal(HANDLE procHandle, LPVOID baseAddr, size_t size, DWORD protect, DWORD* oldp)
 {
+    if(!NtProtectVirtualMemory)
+    {
+        BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
+        return 0;
+    }
     DWORD oldpt = 0;
     if (!oldp)
     {
         oldp = &oldpt;
     }
-    if (size & 0xFFF)
-    {
-        size += 0x1000;
-        size &= 0xFFFFFFFFF000;
-    }
-    NTSTATUS ret = NtProtectVirtualMemory(procHandle, &baseAddr, &size, protect, oldp);
+    DWORD64 addr = (DWORD64)baseAddr;
+    addr &= 0xFFFFFFFFFFFFF000;
+    NTSTATUS ret = NtProtectVirtualMemory(procHandle, (void**)(&addr), &size, protect, oldp);
     if (ret)
     {
         BaseSetLastNTError_inter(ret);
@@ -353,6 +293,11 @@ static BOOLEAN WINAPI VirtualProtect_Internal(HANDLE procHandle, LPVOID baseAddr
 
 static PVOID WINAPI VirtualAllocEx_Internal(HANDLE procHandle, PVOID* dst_baseaddr, size_t size, DWORD protect)
 {
+    if (!ZwAllocateVirtualMemory)
+    {
+        BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
+        return 0;
+    }
     void* baseaddr = 0;
     if (!dst_baseaddr)
         dst_baseaddr = &baseaddr;
@@ -367,10 +312,13 @@ static PVOID WINAPI VirtualAllocEx_Internal(HANDLE procHandle, PVOID* dst_basead
 
 static PVOID WINAPI VirtualAlloc_Internal(PVOID* dst_baseaddr, size_t size, DWORD protect)
 {
-    void* baseaddr = 0;
-    if (!dst_baseaddr)
-        dst_baseaddr = &baseaddr;
-    NTSTATUS ret = ZwAllocateVirtualMemory((HANDLE)-1, dst_baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
+    if (!ZwAllocateVirtualMemory)
+    {
+        BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
+        return 0;
+    }
+    void* baseaddr = dst_baseaddr;
+    NTSTATUS ret = ZwAllocateVirtualMemory((HANDLE)-1, &baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
     if (ret)
     {
         BaseSetLastNTError_inter(ret);
@@ -382,25 +330,38 @@ static PVOID WINAPI VirtualAlloc_Internal(PVOID* dst_baseaddr, size_t size, DWOR
 
 static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, LPVOID dst_baseaddr, LPVOID src_buffer, size_t size, size_t* writenum)
 {
-    size_t tsize = 0;
-    NTSTATUS ret = ZwWriteVirtualMemory(procHandle, dst_baseaddr, src_buffer, size, &tsize);
-    if (ret)
+    if (!ZwWriteVirtualMemory)
     {
-        BaseSetLastNTError_inter(ret);
+        BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
         return 0;
     }
-    if (writenum)
+    size_t tsize = 0;
+    DWORD oldp = 0;
+    NTSTATUS ret = STATUS_ACCESS_VIOLATION;
+    if (VirtualProtect_Internal(procHandle, dst_baseaddr, size, PAGE_EXECUTE_READWRITE, &oldp))
     {
-        *writenum = tsize;
+        ret = ZwWriteVirtualMemory(procHandle, dst_baseaddr, src_buffer, size, &tsize);
+        if (ret)
+            goto __failed;
+        
+        if (writenum)
+            *writenum = tsize;
+        return VirtualProtect_Internal(procHandle, dst_baseaddr, size, oldp, 0);;
     }
-    return 1;
+__failed:
+    BaseSetLastNTError_inter(ret);
+    return 0;
 }
 
 
 static HANDLE WINAPI CreateThread_Internal(HANDLE procHandle, LPSECURITY_ATTRIBUTES lpThreadAttributes, LPTHREAD_START_ROUTINE lpStartAddress, LPVOID lpParameter)
 {
+    if (!ZwCreateThreadEx)
+    {
+        BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
+        return 0;
+    }
     HANDLE retHandle = 0;
-
     NTSTATUS status = ZwCreateThreadEx(&retHandle, 0x1FFFF, 0, procHandle, lpStartAddress, lpParameter, 0, 0, 0xC000, 0x30000, 0);
     if (status)
     {
@@ -422,26 +383,29 @@ static void writebyte(void* dst, BYTE num)
 }
 
 
-static void init_syscall_buff(void* buffer)
+static __forceinline void init_syscall_buff(void* buff, DWORD sc_CTEx, DWORD sc_alloc, DWORD sc_ptm, DWORD sc_writemem, DWORD sc_querymem)
 {
-    memset(buffer, 0xCC, 0x400);
-    BYTE* startaddr = (BYTE*)buffer + 0x100;
-    for(int i = 0; i != 0x5; i++)
+    memset(buff, 0xCC, 0x200);
+    BYTE* startaddr = (BYTE*)buff + 0x20;
+    for(int i = 0; i != 0x6; i++)
     {
         *(DWORD64*)(startaddr + (i * 0x20)) = 0xFFFFFFFFB8CA8949;
         *(DWORD64*)(startaddr + (i * 0x20) + 0x8) = 0xFBEB050FC3401F0F;
     }
-    *(DWORD*)(startaddr + 0x4) = scNum_CreateThreadEx;
+    *(DWORD*)(startaddr + 0x4) = sc_CTEx;
     ZwCreateThreadEx = (_ZwCreateThreadEx_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x4) = scNum_AllocMem;
+    *(DWORD*)(startaddr + 0x4) = sc_alloc;
     ZwAllocateVirtualMemory = (_ZwAllocateVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x4) = scNum_ProtectMem;
+    *(DWORD*)(startaddr + 0x4) = sc_ptm;
     NtProtectVirtualMemory = (_NtProtectVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x4) = scNum_WriteMem;
+    *(DWORD*)(startaddr + 0x4) = sc_writemem;
     ZwWriteVirtualMemory = (_ZwWriteVirtualMemory_Win64)startaddr;
+    startaddr += 0x20;
+    *(DWORD*)(startaddr + 0x4) = sc_querymem;
+    NtQueryVirtualMemory = (_NtQueryVirtualMemory_Win64)startaddr;
 }
 
 static NTSTATUS init_NTAPI()
@@ -458,7 +422,7 @@ static NTSTATUS init_NTAPI()
         writebyte(str_ntdll, 'd');
         writebyte(str_ntdll, 'l');
         writebyte(str_ntdll, 'l');
-        ntdll = GetModuleHandleA(str_ntdll);
+        ntdll = LoadLibraryA(str_ntdll);
     }
     if (!ntdll)
         return STATUS_DLL_NOT_FOUND;
@@ -467,19 +431,21 @@ static NTSTATUS init_NTAPI()
     //uint16_t OSver = ParseOSBuildBumber(ntdll);
     WORD OSver = peb->OSBuildNumber;
     bool init_OSver = 0;
-    if (IS_KNOWN_WINDOWS_BUILD(OSver))
+    if (OSver)
     {
         DWORD sc_CreateThreadEx = 0;
         //DWORD sc_CreateThread = 0;
         DWORD sc_AllocMem = 0;
         DWORD sc_WriteMem = 0;
         DWORD sc_ProtectMem = 0;
+        DWORD sc_VirtualQuery = 0;
         if (OSver == WINDOWS_11_24H2)
         {
             sc_CreateThreadEx = 0xc9;
             sc_AllocMem = 0x18;
             sc_WriteMem = 0x3a;
             sc_ProtectMem = 0x50;
+            sc_VirtualQuery = 0x23;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_11_22H2 || OSver == WINDOWS_11_23H2)
@@ -488,6 +454,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x18;
             sc_WriteMem = 0x3a;
             sc_ProtectMem = 0x50;
+            sc_VirtualQuery = 0x23;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_11_21H2)
@@ -496,6 +463,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x18;
             sc_WriteMem = 0x3a;
             sc_ProtectMem = 0x50;
+            sc_VirtualQuery = 0x23;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_22H2 || OSver == WINDOWS_10_21H2)
@@ -504,6 +472,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x18;
             sc_WriteMem = 0x3a;
             sc_ProtectMem = 0x50;
+            sc_VirtualQuery = 0x23;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_20H2 || OSver == WINDOWS_10_20H1 || OSver == WINDOWS_10_21H1)
@@ -512,6 +481,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x18;
             sc_WriteMem = 0x3a;
             sc_ProtectMem = 0x50;
+            sc_VirtualQuery = 0x23;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_19H2 || OSver == WINDOWS_10_19H1)
@@ -520,6 +490,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x18;
             sc_WriteMem = 0x3a;
             sc_ProtectMem = 0x50;
+            sc_VirtualQuery = 0x23;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_RS5)
@@ -528,6 +499,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x18;
             sc_WriteMem = 0x3a;
             sc_ProtectMem = 0x50;
+            sc_VirtualQuery = 0x23;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_RS4)
@@ -536,6 +508,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x18;
             sc_WriteMem = 0x3a;
             sc_ProtectMem = 0x50;
+            sc_VirtualQuery = 0x23;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_RS3)
@@ -544,6 +517,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x18;
             sc_WriteMem = 0x3a;
             sc_ProtectMem = 0x50;
+            sc_VirtualQuery = 0x23;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_RS2)
@@ -552,6 +526,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x18;
             sc_WriteMem = 0x3a;
             sc_ProtectMem = 0x50;
+            sc_VirtualQuery = 0x23;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_RS1)
@@ -560,6 +535,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x18;
             sc_WriteMem = 0x3a;
             sc_ProtectMem = 0x50;
+            sc_VirtualQuery = 0x23;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_TH2)
@@ -568,6 +544,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x18;
             sc_WriteMem = 0x3a;
             sc_ProtectMem = 0x50;
+            sc_VirtualQuery = 0x23;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_TH1)
@@ -576,6 +553,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x18;
             sc_WriteMem = 0x3a;
             sc_ProtectMem = 0x50;
+            sc_VirtualQuery = 0x23;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_8_1)
@@ -585,6 +563,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x17;
             sc_WriteMem = 0x39;
             sc_ProtectMem = 0x4f;
+            sc_VirtualQuery = 0x22;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_8)
@@ -594,24 +573,17 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x16;
             sc_WriteMem = 0x38;
             sc_ProtectMem = 0x4e;
+            sc_VirtualQuery = 0x21;
             init_OSver = 1;
         }
-        else if (OSver == WINDOWS_7_SP1)
+        else if (OSver == WINDOWS_7_SP1 || OSver == WINDOWS_7)
         {
             sc_CreateThreadEx = 0xa5;
             //sc_CreateThread = 0x4b;
             sc_AllocMem = 0x15;
             sc_WriteMem = 0x37;
             sc_ProtectMem = 0x4d;
-            init_OSver = 1;
-        }
-        else if (OSver == WINDOWS_7)
-        {
-            sc_CreateThreadEx = 0xa5;
-            //sc_CreateThread = 0x4b;
-            sc_AllocMem = 0x15;
-            sc_WriteMem = 0x37;
-            sc_ProtectMem = 0x4d;
+            sc_VirtualQuery = 0x20;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_VISTA_SP2)
@@ -621,6 +593,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x15;
             sc_WriteMem = 0x37;
             sc_ProtectMem = 0x4d;
+            sc_VirtualQuery = 0x20;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_VISTA_SP1)
@@ -630,6 +603,7 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x15;
             sc_WriteMem = 0x37;
             sc_ProtectMem = 0x4d;
+            sc_VirtualQuery = 0x20;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_VISTA)
@@ -639,153 +613,155 @@ static NTSTATUS init_NTAPI()
             sc_AllocMem = 0x15;
             sc_WriteMem = 0x37;
             sc_ProtectMem = 0x4d;
+            sc_VirtualQuery = 0x20;
             init_OSver = 1;
         }
         if (init_OSver)
         {
-            scNum_CreateThreadEx = sc_CreateThreadEx;
-            scNum_AllocMem = sc_AllocMem;
-            scNum_WriteMem = sc_WriteMem;
-            scNum_ProtectMem = sc_ProtectMem;
-            //ZwCreateThreadEx = (_ZwCreateThreadEx_Win64)&ZwCreateThreadEx_internel;
-            _ZwAllocateVirtualMemory_Win64 allocEr = (_ZwAllocateVirtualMemory_Win64)&ZwAllocateVirtualMemory_internel;
-            //ZwWriteVirtualMemory = (_ZwWriteVirtualMemory_Win64)&ZwWriteVirtualMemory_internel;
-            //NtProtectVirtualMemory = (_NtProtectVirtualMemory_Win64)&NtProtectVirtualMemory_internel;
+            
+            sc_number = sc_ProtectMem;
+            NtProtectVirtualMemory = (_NtProtectVirtualMemory_Win64)&asm_syscall;
+            asm_initpsc(&sc_number);
+
+            size_t i = 0x1000;
+            DWORD old = 0;
+            uintptr_t addr = (uintptr_t)(&buffer_call);
+            addr &= 0xFFFFFFFFF000;
+            NTSTATUS ret = NtProtectVirtualMemory((HANDLE)-1, (void**)(&addr), &i, PAGE_EXECUTE_READWRITE, &old);
+            if (!ret)
+            {
+                init_syscall_buff((void*)(&buffer_call), sc_CreateThreadEx, sc_AllocMem, sc_ProtectMem, sc_WriteMem, sc_VirtualQuery);
+                ret = NtProtectVirtualMemory((HANDLE)-1, (void**)(&addr), &i, PAGE_EXECUTE_READ, &old);
+            }
+            else
+            {
+                return ret;
+            }
+
             RtlNtStatusToDosError = (_RtlNtStatusToDosError_Win64)GetProcAddress(ntdll, "RtlNtStatusToDosError");
             if (!RtlNtStatusToDosError)
             {
                 return GetLastError();
             }
-            asm_initpsc(&sc_number);
-            size_t i = 0x1000;
-            void* buff = 0;
-            allocEr((HANDLE)-1, &buff, 0, &i, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-            if (buff)
-            {
-                init_syscall_buff(buff);
-                DWORD oldp;
-                return NtProtectVirtualMemory((HANDLE)-1, &buff, &i, PAGE_EXECUTE_READ, &oldp);
-            }
             return ERROR_SUCCESS;
         }
     }
-    else
 #endif
+    
     {
-        {
-            char str_zct[24] = { 0 };
-            writebyte(str_zct, 'N');
-            writebyte(str_zct, 't');
-            writebyte(str_zct, 'C');
-            writebyte(str_zct, 'r');
-            writebyte(str_zct, 'e');
-            writebyte(str_zct, 'a');
-            writebyte(str_zct, 't');
-            writebyte(str_zct, 'e');
-            writebyte(str_zct, 'T');
-            writebyte(str_zct, 'h');
-            writebyte(str_zct, 'r');
-            writebyte(str_zct, 'e');
-            writebyte(str_zct, 'a');
-            writebyte(str_zct, 'd');
-            writebyte(str_zct, 'E');
-            writebyte(str_zct, 'x');
-            ZwCreateThreadEx = (_ZwCreateThreadEx_Win64)GetProcAddress(ntdll, str_zct);
-        }
-        if (!ZwCreateThreadEx)
-        {
-            return GetLastError();
-        }
-        {
-            char str_alloc[32] = { 0 };
-            writebyte(str_alloc, 'N');
-            writebyte(str_alloc, 't');
-            writebyte(str_alloc, 'A');
-            writebyte(str_alloc, 'l');
-            writebyte(str_alloc, 'l');
-            writebyte(str_alloc, 'o');
-            writebyte(str_alloc, 'c');
-            writebyte(str_alloc, 'a');
-            writebyte(str_alloc, 't');
-            writebyte(str_alloc, 'e');
-            writebyte(str_alloc, 'V');
-            writebyte(str_alloc, 'i');
-            writebyte(str_alloc, 'r');
-            writebyte(str_alloc, 't');
-            writebyte(str_alloc, 'u');
-            writebyte(str_alloc, 'a');
-            writebyte(str_alloc, 'l');
-            writebyte(str_alloc, 'M');
-            writebyte(str_alloc, 'e');
-            writebyte(str_alloc, 'm');
-            writebyte(str_alloc, 'o');
-            writebyte(str_alloc, 'r');
-            writebyte(str_alloc, 'y');
-            ZwAllocateVirtualMemory = (_ZwAllocateVirtualMemory_Win64)GetProcAddress(ntdll, str_alloc);
-        }
-        if (!ZwAllocateVirtualMemory)
-        {
-            return GetLastError();
-        }
-        {
-            char str_wrtMem[32] = { 0 };
-            writebyte(str_wrtMem, 'N');
-            writebyte(str_wrtMem, 't');
-            writebyte(str_wrtMem, 'W');
-            writebyte(str_wrtMem, 'r');
-            writebyte(str_wrtMem, 'i');
-            writebyte(str_wrtMem, 't');
-            writebyte(str_wrtMem, 'e');
-            writebyte(str_wrtMem, 'V');
-            writebyte(str_wrtMem, 'i');
-            writebyte(str_wrtMem, 'r');
-            writebyte(str_wrtMem, 't');
-            writebyte(str_wrtMem, 'u');
-            writebyte(str_wrtMem, 'a');
-            writebyte(str_wrtMem, 'l');
-            writebyte(str_wrtMem, 'M');
-            writebyte(str_wrtMem, 'e');
-            writebyte(str_wrtMem, 'm');
-            writebyte(str_wrtMem, 'o');
-            writebyte(str_wrtMem, 'r');
-            writebyte(str_wrtMem, 'y');
-            ZwWriteVirtualMemory = (_ZwWriteVirtualMemory_Win64)GetProcAddress(ntdll, str_wrtMem);
-        }
-        if (!ZwWriteVirtualMemory)
-        {
-            return GetLastError();
-        }
-        {
-            char str_protectMem[32] = { 0 };
-            writebyte(str_protectMem, 'N');
-            writebyte(str_protectMem, 't');
-            writebyte(str_protectMem, 'P');
-            writebyte(str_protectMem, 'r');
-            writebyte(str_protectMem, 'o');
-            writebyte(str_protectMem, 't');
-            writebyte(str_protectMem, 'e');
-            writebyte(str_protectMem, 'c');
-            writebyte(str_protectMem, 't');
-            writebyte(str_protectMem, 'V');
-            writebyte(str_protectMem, 'i');
-            writebyte(str_protectMem, 'r');
-            writebyte(str_protectMem, 't');
-            writebyte(str_protectMem, 'u');
-            writebyte(str_protectMem, 'a');
-            writebyte(str_protectMem, 'l');
-            writebyte(str_protectMem, 'M');
-            writebyte(str_protectMem, 'e');
-            writebyte(str_protectMem, 'm');
-            writebyte(str_protectMem, 'o');
-            writebyte(str_protectMem, 'r');
-            writebyte(str_protectMem, 'y');
-            NtProtectVirtualMemory = (_NtProtectVirtualMemory_Win64)GetProcAddress(ntdll, str_protectMem);
-        }
-        if (!NtProtectVirtualMemory)
-        {
-            return GetLastError();
-        }
+        char str_zct[24] = { 0 };
+        writebyte(str_zct, 'N');
+        writebyte(str_zct, 't');
+        writebyte(str_zct, 'C');
+        writebyte(str_zct, 'r');
+        writebyte(str_zct, 'e');
+        writebyte(str_zct, 'a');
+        writebyte(str_zct, 't');
+        writebyte(str_zct, 'e');
+        writebyte(str_zct, 'T');
+        writebyte(str_zct, 'h');
+        writebyte(str_zct, 'r');
+        writebyte(str_zct, 'e');
+        writebyte(str_zct, 'a');
+        writebyte(str_zct, 'd');
+        writebyte(str_zct, 'E');
+        writebyte(str_zct, 'x');
+        ZwCreateThreadEx = (_ZwCreateThreadEx_Win64)GetProcAddress(ntdll, str_zct);
     }
+    if (!ZwCreateThreadEx)
+    {
+        return GetLastError();
+    }
+    {
+        char str_alloc[32] = { 0 };
+        writebyte(str_alloc, 'N');
+        writebyte(str_alloc, 't');
+        writebyte(str_alloc, 'A');
+        writebyte(str_alloc, 'l');
+        writebyte(str_alloc, 'l');
+        writebyte(str_alloc, 'o');
+        writebyte(str_alloc, 'c');
+        writebyte(str_alloc, 'a');
+        writebyte(str_alloc, 't');
+        writebyte(str_alloc, 'e');
+        writebyte(str_alloc, 'V');
+        writebyte(str_alloc, 'i');
+        writebyte(str_alloc, 'r');
+        writebyte(str_alloc, 't');
+        writebyte(str_alloc, 'u');
+        writebyte(str_alloc, 'a');
+        writebyte(str_alloc, 'l');
+        writebyte(str_alloc, 'M');
+        writebyte(str_alloc, 'e');
+        writebyte(str_alloc, 'm');
+        writebyte(str_alloc, 'o');
+        writebyte(str_alloc, 'r');
+        writebyte(str_alloc, 'y');
+        ZwAllocateVirtualMemory = (_ZwAllocateVirtualMemory_Win64)GetProcAddress(ntdll, str_alloc);
+    }
+    if (!ZwAllocateVirtualMemory)
+    {
+        return GetLastError();
+    }
+    {
+        char str_wrtMem[32] = { 0 };
+        writebyte(str_wrtMem, 'N');
+        writebyte(str_wrtMem, 't');
+        writebyte(str_wrtMem, 'W');
+        writebyte(str_wrtMem, 'r');
+        writebyte(str_wrtMem, 'i');
+        writebyte(str_wrtMem, 't');
+        writebyte(str_wrtMem, 'e');
+        writebyte(str_wrtMem, 'V');
+        writebyte(str_wrtMem, 'i');
+        writebyte(str_wrtMem, 'r');
+        writebyte(str_wrtMem, 't');
+        writebyte(str_wrtMem, 'u');
+        writebyte(str_wrtMem, 'a');
+        writebyte(str_wrtMem, 'l');
+        writebyte(str_wrtMem, 'M');
+        writebyte(str_wrtMem, 'e');
+        writebyte(str_wrtMem, 'm');
+        writebyte(str_wrtMem, 'o');
+        writebyte(str_wrtMem, 'r');
+        writebyte(str_wrtMem, 'y');
+        ZwWriteVirtualMemory = (_ZwWriteVirtualMemory_Win64)GetProcAddress(ntdll, str_wrtMem);
+    }
+    if (!ZwWriteVirtualMemory)
+    {
+        return GetLastError();
+    }
+    {
+        char str_protectMem[32] = { 0 };
+        writebyte(str_protectMem, 'N');
+        writebyte(str_protectMem, 't');
+        writebyte(str_protectMem, 'P');
+        writebyte(str_protectMem, 'r');
+        writebyte(str_protectMem, 'o');
+        writebyte(str_protectMem, 't');
+        writebyte(str_protectMem, 'e');
+        writebyte(str_protectMem, 'c');
+        writebyte(str_protectMem, 't');
+        writebyte(str_protectMem, 'V');
+        writebyte(str_protectMem, 'i');
+        writebyte(str_protectMem, 'r');
+        writebyte(str_protectMem, 't');
+        writebyte(str_protectMem, 'u');
+        writebyte(str_protectMem, 'a');
+        writebyte(str_protectMem, 'l');
+        writebyte(str_protectMem, 'M');
+        writebyte(str_protectMem, 'e');
+        writebyte(str_protectMem, 'm');
+        writebyte(str_protectMem, 'o');
+        writebyte(str_protectMem, 'r');
+        writebyte(str_protectMem, 'y');
+        NtProtectVirtualMemory = (_NtProtectVirtualMemory_Win64)GetProcAddress(ntdll, str_protectMem);
+    }
+    if (!NtProtectVirtualMemory)
+    {
+        return GetLastError();
+    }
+    
     RtlNtStatusToDosError = (_RtlNtStatusToDosError_Win64)GetProcAddress(ntdll, "RtlNtStatusToDosError");
     if (!RtlNtStatusToDosError)
     {

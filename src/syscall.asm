@@ -26,9 +26,9 @@
 		mov eax, dword ptr [rax]
 		mov r10, rcx
 		db 66h
-		dd 00401F0Fh
+		dd 0b8481F0Fh
 		syscall
-		db 48h
+		cdqe
 		ret
 		int 3h
 		int 3h
