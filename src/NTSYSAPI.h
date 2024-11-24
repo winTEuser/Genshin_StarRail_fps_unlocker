@@ -139,6 +139,19 @@ typedef NTSTATUS(NTAPI* _NtMapViewOfSection_Win64)(
     ULONG Win32Protect
     );
 
+typedef BOOL(WINAPI* CreateProcessW_pWin64)(
+    _In_opt_ LPCWSTR lpApplicationName,
+    _Inout_opt_ LPWSTR lpCommandLine,
+    _In_opt_ LPSECURITY_ATTRIBUTES lpProcessAttributes,
+    _In_opt_ LPSECURITY_ATTRIBUTES lpThreadAttributes,
+    _In_ BOOL bInheritHandles,
+    _In_ DWORD dwCreationFlags,
+    _In_opt_ LPVOID lpEnvironment,
+    _In_opt_ LPCWSTR lpCurrentDirectory,
+    _In_ LPSTARTUPINFOW lpStartupInfo,
+    _Out_ LPPROCESS_INFORMATION lpProcessInformation
+);
+
 typedef DWORD(NTAPI* _RtlNtStatusToDosError_Win64)(DWORD Status);
 
 enum {
@@ -190,7 +203,7 @@ _NtProtectVirtualMemory_Win64 NtProtectVirtualMemory = 0;
 _NtQueryVirtualMemory_Win64 NtQueryVirtualMemory = 0;
 _RtlNtStatusToDosError_Win64 RtlNtStatusToDosError = 0;
 
-
+CreateProcessW_pWin64 CreateProcessW_internal = 0;
 
 
 static void writebyte(void* dst, BYTE num)
@@ -200,7 +213,7 @@ static void writebyte(void* dst, BYTE num)
     {
         i++;
     }
-    *((BYTE*)dst + i) = num;
+    *((BYTE*)dst + i) = ~num;
 }
 
 //copy from vmp
@@ -229,15 +242,15 @@ WORD ParseOSBuildBumber()
     HMODULE ntdll = 0;
     {
         char str_ntdll[16] = { 0 };
-        writebyte(str_ntdll, 'n');
-        writebyte(str_ntdll, 't');
-        writebyte(str_ntdll, 'd');
-        writebyte(str_ntdll, 'l');
-        writebyte(str_ntdll, 'l');
-        writebyte(str_ntdll, '.');
-        writebyte(str_ntdll, 'd');
-        writebyte(str_ntdll, 'l');
-        writebyte(str_ntdll, 'l');
+        writebyte(str_ntdll, (~'n'));
+        writebyte(str_ntdll, (~'t'));
+        writebyte(str_ntdll, (~'d'));
+        writebyte(str_ntdll, (~'l'));
+        writebyte(str_ntdll, (~'l'));
+        writebyte(str_ntdll, (~'.'));
+        writebyte(str_ntdll, (~'d'));
+        writebyte(str_ntdll, (~'l'));
+        writebyte(str_ntdll, (~'l'));
         ntdll = LoadLibraryA(str_ntdll);
     }
     if (!ntdll)
@@ -462,6 +475,7 @@ void* GetProcAddress_Internal(HMODULE module, const char* proc_name)
     return GetProcAddress_Internal(tmp_module, reinterpret_cast<const char*>(INT_PTR(ordinal)));
 }
 
+
 static void BaseSetLastNTError_inter(DWORD Status)
 {
     return SetLastError(RtlNtStatusToDosError(Status));
@@ -498,10 +512,8 @@ static PVOID WINAPI VirtualAllocEx_Internal(HANDLE procHandle, PVOID* dst_basead
         BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
         return 0;
     }
-    void* baseaddr = 0;
-    if (!dst_baseaddr)
-        dst_baseaddr = &baseaddr;
-    NTSTATUS ret = ZwAllocateVirtualMemory(procHandle, dst_baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
+    void* baseaddr = dst_baseaddr;
+    NTSTATUS ret = ZwAllocateVirtualMemory(procHandle, &baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
     if (ret)
     {
         BaseSetLastNTError_inter(ret);
@@ -538,7 +550,21 @@ static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, LPVOID dst_b
     size_t tsize = 0;
     DWORD oldp = 0;
     NTSTATUS ret = STATUS_ACCESS_VIOLATION;
-    if (VirtualProtect_Internal(procHandle, dst_baseaddr, size, PAGE_EXECUTE_READWRITE, &oldp))
+    MEMORY_BASIC_INFORMATION temp = { 0 };
+    ret = NtQueryVirtualMemory(procHandle, dst_baseaddr, MemoryBasicInformation, &temp, sizeof(temp), &tsize);
+    if (ret)
+        goto __failed;
+    if (temp.Protect & 0xCC)
+    {
+        ret = ZwWriteVirtualMemory(procHandle, dst_baseaddr, src_buffer, size, &tsize);
+        if (ret)
+            goto __failed;
+
+        if (writenum)
+            *writenum = tsize;
+        return 1;
+    }
+    else if (VirtualProtect_Internal(procHandle, dst_baseaddr, size, 0x60000040, &oldp))
     {
         ret = ZwWriteVirtualMemory(procHandle, dst_baseaddr, src_buffer, size, &tsize);
         if (ret)
@@ -546,7 +572,7 @@ static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, LPVOID dst_b
         
         if (writenum)
             *writenum = tsize;
-        return VirtualProtect_Internal(procHandle, dst_baseaddr, size, oldp, 0);;
+        return VirtualProtect_Internal(procHandle, dst_baseaddr, size, oldp, 0);
     }
 __failed:
     BaseSetLastNTError_inter(ret);
@@ -600,20 +626,39 @@ static __forceinline void init_syscall_buff(void* buff, DWORD sc_CTEx, DWORD sc_
 static NTSTATUS init_NTAPI()
 {
     HMODULE ntdll = 0;
+    HMODULE kernel32 = 0;
     {
         char str_ntdll[16] = { 0 };
-        writebyte(str_ntdll, 'n');
-        writebyte(str_ntdll, 't');
-        writebyte(str_ntdll, 'd');
-        writebyte(str_ntdll, 'l');
-        writebyte(str_ntdll, 'l');
-        writebyte(str_ntdll, '.');
-        writebyte(str_ntdll, 'd');
-        writebyte(str_ntdll, 'l');
-        writebyte(str_ntdll, 'l');
+        writebyte(str_ntdll, (~'n'));
+        writebyte(str_ntdll, (~'t'));
+        writebyte(str_ntdll, (~'d'));
+        writebyte(str_ntdll, (~'l'));
+        writebyte(str_ntdll, (~'l'));
+        writebyte(str_ntdll, (~'.'));
+        writebyte(str_ntdll, (~'d'));
+        writebyte(str_ntdll, (~'l'));
+        writebyte(str_ntdll, (~'l'));
         ntdll = LoadLibraryA(str_ntdll);
     }
     if (!ntdll)
+        return STATUS_DLL_NOT_FOUND;
+    {
+        char str_kerneldll[16] = { 0 };
+        writebyte(str_kerneldll, (~'k'));
+        writebyte(str_kerneldll, (~'e'));
+        writebyte(str_kerneldll, (~'r'));
+        writebyte(str_kerneldll, (~'n'));
+        writebyte(str_kerneldll, (~'e'));
+        writebyte(str_kerneldll, (~'l'));
+        writebyte(str_kerneldll, (~'3'));
+        writebyte(str_kerneldll, (~'2'));
+        writebyte(str_kerneldll, (~'.'));
+        writebyte(str_kerneldll, (~'d'));
+        writebyte(str_kerneldll, (~'l'));
+        writebyte(str_kerneldll, (~'l'));
+        kernel32 = LoadLibraryA(str_kerneldll);
+    }
+    if (!kernel32)
         return STATUS_DLL_NOT_FOUND;
 
 
@@ -821,35 +866,29 @@ static NTSTATUS init_NTAPI()
             {
                 return ret;
             }
-
-            RtlNtStatusToDosError = (_RtlNtStatusToDosError_Win64)GetProcAddress_Internal(ntdll, "RtlNtStatusToDosError");
-            if (!RtlNtStatusToDosError)
-            {
-                return 0xC5;
-            }
-            return ERROR_SUCCESS;
+            goto __other_init;
         }
     }
 #endif
     
     {
         char str_zct[24] = { 0 };
-        writebyte(str_zct, 'N');
-        writebyte(str_zct, 't');
-        writebyte(str_zct, 'C');
-        writebyte(str_zct, 'r');
-        writebyte(str_zct, 'e');
-        writebyte(str_zct, 'a');
-        writebyte(str_zct, 't');
-        writebyte(str_zct, 'e');
-        writebyte(str_zct, 'T');
-        writebyte(str_zct, 'h');
-        writebyte(str_zct, 'r');
-        writebyte(str_zct, 'e');
-        writebyte(str_zct, 'a');
-        writebyte(str_zct, 'd');
-        writebyte(str_zct, 'E');
-        writebyte(str_zct, 'x');
+        writebyte(str_zct, (~'N'));
+        writebyte(str_zct, (~'t'));
+        writebyte(str_zct, (~'C'));
+        writebyte(str_zct, (~'r'));
+        writebyte(str_zct, (~'e'));
+        writebyte(str_zct, (~'a'));
+        writebyte(str_zct, (~'t'));
+        writebyte(str_zct, (~'e'));
+        writebyte(str_zct, (~'T'));
+        writebyte(str_zct, (~'h'));
+        writebyte(str_zct, (~'r'));
+        writebyte(str_zct, (~'e'));
+        writebyte(str_zct, (~'a'));
+        writebyte(str_zct, (~'d'));
+        writebyte(str_zct, (~'E'));
+        writebyte(str_zct, (~'x'));
         ZwCreateThreadEx = (_ZwCreateThreadEx_Win64)GetProcAddress_Internal(ntdll, str_zct);
     }
     if (!ZwCreateThreadEx)
@@ -858,29 +897,29 @@ static NTSTATUS init_NTAPI()
     }
     {
         char str_alloc[32] = { 0 };
-        writebyte(str_alloc, 'N');
-        writebyte(str_alloc, 't');
-        writebyte(str_alloc, 'A');
-        writebyte(str_alloc, 'l');
-        writebyte(str_alloc, 'l');
-        writebyte(str_alloc, 'o');
-        writebyte(str_alloc, 'c');
-        writebyte(str_alloc, 'a');
-        writebyte(str_alloc, 't');
-        writebyte(str_alloc, 'e');
-        writebyte(str_alloc, 'V');
-        writebyte(str_alloc, 'i');
-        writebyte(str_alloc, 'r');
-        writebyte(str_alloc, 't');
-        writebyte(str_alloc, 'u');
-        writebyte(str_alloc, 'a');
-        writebyte(str_alloc, 'l');
-        writebyte(str_alloc, 'M');
-        writebyte(str_alloc, 'e');
-        writebyte(str_alloc, 'm');
-        writebyte(str_alloc, 'o');
-        writebyte(str_alloc, 'r');
-        writebyte(str_alloc, 'y');
+        writebyte(str_alloc, (~'N'));
+        writebyte(str_alloc, (~'t'));
+        writebyte(str_alloc, (~'A'));
+        writebyte(str_alloc, (~'l'));
+        writebyte(str_alloc, (~'l'));
+        writebyte(str_alloc, (~'o'));
+        writebyte(str_alloc, (~'c'));
+        writebyte(str_alloc, (~'a'));
+        writebyte(str_alloc, (~'t'));
+        writebyte(str_alloc, (~'e'));
+        writebyte(str_alloc, (~'V'));
+        writebyte(str_alloc, (~'i'));
+        writebyte(str_alloc, (~'r'));
+        writebyte(str_alloc, (~'t'));
+        writebyte(str_alloc, (~'u'));
+        writebyte(str_alloc, (~'a'));
+        writebyte(str_alloc, (~'l'));
+        writebyte(str_alloc, (~'M'));
+        writebyte(str_alloc, (~'e'));
+        writebyte(str_alloc, (~'m'));
+        writebyte(str_alloc, (~'o'));
+        writebyte(str_alloc, (~'r'));
+        writebyte(str_alloc, (~'y'));
         ZwAllocateVirtualMemory = (_ZwAllocateVirtualMemory_Win64)GetProcAddress_Internal(ntdll, str_alloc);
     }
     if (!ZwAllocateVirtualMemory)
@@ -889,26 +928,26 @@ static NTSTATUS init_NTAPI()
     }
     {
         char str_wrtMem[32] = { 0 };
-        writebyte(str_wrtMem, 'N');
-        writebyte(str_wrtMem, 't');
-        writebyte(str_wrtMem, 'W');
-        writebyte(str_wrtMem, 'r');
-        writebyte(str_wrtMem, 'i');
-        writebyte(str_wrtMem, 't');
-        writebyte(str_wrtMem, 'e');
-        writebyte(str_wrtMem, 'V');
-        writebyte(str_wrtMem, 'i');
-        writebyte(str_wrtMem, 'r');
-        writebyte(str_wrtMem, 't');
-        writebyte(str_wrtMem, 'u');
-        writebyte(str_wrtMem, 'a');
-        writebyte(str_wrtMem, 'l');
-        writebyte(str_wrtMem, 'M');
-        writebyte(str_wrtMem, 'e');
-        writebyte(str_wrtMem, 'm');
-        writebyte(str_wrtMem, 'o');
-        writebyte(str_wrtMem, 'r');
-        writebyte(str_wrtMem, 'y');
+        writebyte(str_wrtMem, (~'N'));
+        writebyte(str_wrtMem, (~'t'));
+        writebyte(str_wrtMem, (~'W'));
+        writebyte(str_wrtMem, (~'r'));
+        writebyte(str_wrtMem, (~'i'));
+        writebyte(str_wrtMem, (~'t'));
+        writebyte(str_wrtMem, (~'e'));
+        writebyte(str_wrtMem, (~'V'));
+        writebyte(str_wrtMem, (~'i'));
+        writebyte(str_wrtMem, (~'r'));
+        writebyte(str_wrtMem, (~'t'));
+        writebyte(str_wrtMem, (~'u'));
+        writebyte(str_wrtMem, (~'a'));
+        writebyte(str_wrtMem, (~'l'));
+        writebyte(str_wrtMem, (~'M'));
+        writebyte(str_wrtMem, (~'e'));
+        writebyte(str_wrtMem, (~'m'));
+        writebyte(str_wrtMem, (~'o'));
+        writebyte(str_wrtMem, (~'r'));
+        writebyte(str_wrtMem, (~'y'));
         ZwWriteVirtualMemory = (_ZwWriteVirtualMemory_Win64)GetProcAddress_Internal(ntdll, str_wrtMem);
     }
     if (!ZwWriteVirtualMemory)
@@ -917,28 +956,28 @@ static NTSTATUS init_NTAPI()
     }
     {
         char str_protectMem[32] = { 0 };
-        writebyte(str_protectMem, 'N');
-        writebyte(str_protectMem, 't');
-        writebyte(str_protectMem, 'P');
-        writebyte(str_protectMem, 'r');
-        writebyte(str_protectMem, 'o');
-        writebyte(str_protectMem, 't');
-        writebyte(str_protectMem, 'e');
-        writebyte(str_protectMem, 'c');
-        writebyte(str_protectMem, 't');
-        writebyte(str_protectMem, 'V');
-        writebyte(str_protectMem, 'i');
-        writebyte(str_protectMem, 'r');
-        writebyte(str_protectMem, 't');
-        writebyte(str_protectMem, 'u');
-        writebyte(str_protectMem, 'a');
-        writebyte(str_protectMem, 'l');
-        writebyte(str_protectMem, 'M');
-        writebyte(str_protectMem, 'e');
-        writebyte(str_protectMem, 'm');
-        writebyte(str_protectMem, 'o');
-        writebyte(str_protectMem, 'r');
-        writebyte(str_protectMem, 'y');
+        writebyte(str_protectMem, (~'N'));
+        writebyte(str_protectMem, (~'t'));
+        writebyte(str_protectMem, (~'P'));
+        writebyte(str_protectMem, (~'r'));
+        writebyte(str_protectMem, (~'o'));
+        writebyte(str_protectMem, (~'t'));
+        writebyte(str_protectMem, (~'e'));
+        writebyte(str_protectMem, (~'c'));
+        writebyte(str_protectMem, (~'t'));
+        writebyte(str_protectMem, (~'V'));
+        writebyte(str_protectMem, (~'i'));
+        writebyte(str_protectMem, (~'r'));
+        writebyte(str_protectMem, (~'t'));
+        writebyte(str_protectMem, (~'u'));
+        writebyte(str_protectMem, (~'a'));
+        writebyte(str_protectMem, (~'l'));
+        writebyte(str_protectMem, (~'M'));
+        writebyte(str_protectMem, (~'e'));
+        writebyte(str_protectMem, (~'m'));
+        writebyte(str_protectMem, (~'o'));
+        writebyte(str_protectMem, (~'r'));
+        writebyte(str_protectMem, (~'y'));
         NtProtectVirtualMemory = (_NtProtectVirtualMemory_Win64)GetProcAddress_Internal(ntdll, str_protectMem);
     }
     if (!NtProtectVirtualMemory)
@@ -946,11 +985,35 @@ static NTSTATUS init_NTAPI()
         return 0xC4;
     }
     
+__other_init:
     RtlNtStatusToDosError = (_RtlNtStatusToDosError_Win64)GetProcAddress_Internal(ntdll, "RtlNtStatusToDosError");
     if (!RtlNtStatusToDosError)
     {
         return 0xC5;
     }
+    {
+        char str_createproc[16] = { 0 };
+        writebyte(str_createproc, (~'C'));
+        writebyte(str_createproc, (~'r'));
+        writebyte(str_createproc, (~'e'));
+        writebyte(str_createproc, (~'a'));
+        writebyte(str_createproc, (~'t'));
+        writebyte(str_createproc, (~'e'));
+        writebyte(str_createproc, (~'P'));
+        writebyte(str_createproc, (~'r'));
+        writebyte(str_createproc, (~'o'));
+        writebyte(str_createproc, (~'c'));
+        writebyte(str_createproc, (~'e'));
+        writebyte(str_createproc, (~'s'));
+        writebyte(str_createproc, (~'s'));
+        writebyte(str_createproc, (~'W'));
+        CreateProcessW_internal = (CreateProcessW_pWin64)GetProcAddress_Internal(kernel32, str_createproc);
+    }
+    if (!CreateProcessW_internal)
+    {
+        return 0xC6;
+    }
+
     return ERROR_SUCCESS;
 }
 

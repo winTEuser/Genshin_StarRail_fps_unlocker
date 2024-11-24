@@ -24,7 +24,7 @@
 #include <intrin.h>
 #include "fastmemcp.h"
 #include "inireader.h"
-#include "NTSYSCALLAPI.h"
+#include "NTSYSAPI.h"
 
 
 #ifndef _WIN64
@@ -638,7 +638,7 @@ _no_config:
         while (ExitCode == STILL_ACTIVE)
         {
             TerminateProcess(hProcess, 0);
-            Sleep(1000);
+            Sleep(2000);
             GetExitCodeProcess(hProcess, &ExitCode);
         }
 
@@ -821,10 +821,6 @@ static uint64_t inject_patch(LPVOID text_buffer, uint32_t text_size, uintptr_t _
     DWORD64 address = 0;
 
     BYTE* _sc_buffer = _G_shellcode_buffer;
-    if (_sc_buffer == 0)
-    {
-        return 0;
-    }
 
     if (!isGenshin)
     {
@@ -841,7 +837,7 @@ static uint64_t inject_patch(LPVOID text_buffer, uint32_t text_size, uintptr_t _
                 *(uint8_t*)Patch0_addr = 0x8B;      //mov dword ptr ds:[?????????], ecx   -->  mov ecx, dword ptr ds:[?????????]
                 if (WriteProcessMemoryInternal(Tar_handle, (LPVOID)Patch0_addr_hook, (LPVOID)Patch0_addr, 0x1, 0) == 0)
                 {
-                    Show_Error_Msg(L"Write Target_Patch Fail! ");
+                    Show_Error_Msg(L"Patch Fail! ");
                     return 0;
                 }
                 goto ___patcher;
@@ -872,15 +868,7 @@ ___patcher:
     *(uint64_t*)(_sc_buffer + 0x8) = (uint64_t)(&FpsValue); //source ptr
     *(uint64_t*)(_sc_buffer + 0x18) = _ptr_fps;
 
-    LPVOID __Tar_proc_buffer = 0;
-    __Tar_proc_buffer = VirtualAllocEx_Internal(Tar_handle, NULL, 0x1000, PAGE_READWRITE);
-    
-    /*
-    {
-        __Tar_proc_buffer = VirtualAllocEx(Tar_handle, NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    }
-    */
-
+    LPVOID __Tar_proc_buffer = VirtualAllocEx_Internal(Tar_handle, NULL, 0x1000, PAGE_READWRITE);
     if (__Tar_proc_buffer)
     {
         if (Ptr_Rva)
@@ -891,7 +879,6 @@ ___patcher:
         }
         if (WriteProcessMemoryInternal(Tar_handle, __Tar_proc_buffer, (void*)_sc_buffer, sizeof(_shellcode_Const), 0))
         {
-            VirtualFree((void*)_sc_buffer, 0, MEM_RELEASE);
             if(VirtualProtect_Internal(Tar_handle, __Tar_proc_buffer, 0x1000, PAGE_EXECUTE_READ, 0))
             {
                 HANDLE temp = CreateThread_Internal(Tar_handle, 0, (LPTHREAD_START_ROUTINE)((uint64_t)__Tar_proc_buffer + sc_entryVA), NULL);
@@ -914,8 +901,6 @@ ___patcher:
             return 0;
         }
         Show_Error_Msg(L"Write Scode Fail! ");
-        VirtualFree((void*)_sc_buffer, 0, MEM_RELEASE);
-        _G_shellcode_buffer = 0;
         return 0;
     }
     else 
@@ -1096,7 +1081,7 @@ int main(/*int argc, char** argvA*/void)
                 HANDLE tempHandle = OpenProcess(PROCESS_TERMINATE, false, pid);
                 TerminateProcess(tempHandle, 0);
                 CloseHandle(tempHandle);
-                Sleep(1000);
+                Sleep(2000);
             }
             goto _wait_process_close;
         }
@@ -1118,7 +1103,7 @@ int main(/*int argc, char** argvA*/void)
     }
     memset(boot_info, 0, sizeof(STARTUPINFOW) + sizeof(PROCESS_INFORMATION) + 0x20);
 
-    if (!CreateProcessW(ProcessPath->c_str(), Command_arg, NULL, NULL, FALSE, NULL, NULL, ProcessDir->c_str(), si, pi))
+    if (!CreateProcessW_internal(ProcessPath->c_str(), Command_arg, NULL, NULL, FALSE, NULL, NULL, ProcessDir->c_str(), si, pi))
     {
         Show_Error_Msg(L"CreateProcess Fail!");
         return (int)-1;
@@ -1282,6 +1267,7 @@ __Continue:
         Show_Error_Msg(L"Inject Fail !\n");
         return -1;
     }
+    _G_shellcode_buffer = (BYTE*)Patch_buffer;
     
     DelWstring(&ProcessPath);
     DelWstring(&ProcessDir);
