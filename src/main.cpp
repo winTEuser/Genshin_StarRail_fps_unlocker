@@ -274,7 +274,7 @@ static BYTE* init_shellcode()
     memcpy_mm((void*)_shellcode_buffer, &_shellcode_Const, sizeof(_shellcode_Const));
 
     *(uint32_t*)_shellcode_buffer = GetCurrentProcessId();       //unlocker PID
-    *(uint64_t*)(_shellcode_buffer + 0x40) = (uint64_t)(&OpenProcess);
+    *(uint64_t*)(_shellcode_buffer + 0x40) = (uint64_t)(p_OpenProcess);
     *(uint64_t*)(_shellcode_buffer + 0x48) = (uint64_t)(&ReadProcessMemory);
     *(uint64_t*)(_shellcode_buffer + 0x50) = (uint64_t)(&Sleep);
     *(uint64_t*)(_shellcode_buffer + 0x58) = (uint64_t)(&GetModuleHandleA);
@@ -579,7 +579,7 @@ static bool LoadConfig()
     INIReader reader(CONFIG_FILENAME);
     if (reader.ParseError() != 0)
     {
-        wprintf_s(L" Config Not Found !\n 配置文件未发现\n Don't close unlocker and open the game \n 不要关闭解锁器,并打开游戏\n Wait for game start ......\n 等待游戏启动.....\n");
+        wprintf_s(L"\n Config Not Found !\n 配置文件未发现\n Don't close unlocker and open the game \n 不要关闭解锁器,并打开游戏\n Wait for game start ......\n 等待游戏启动.....\n");
 
 _no_config:
         DWORD pid = 0;
@@ -597,7 +597,7 @@ _no_config:
             }
             Sleep(200);
         }
-        HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE | PROCESS_TERMINATE, FALSE, pid);
+        HANDLE hProcess = OpenProcess_Internal(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE | PROCESS_TERMINATE, pid);
         if (!hProcess)
         {
             Show_Error_Msg(L"OpenProcess failed! (Get game path)");
@@ -645,7 +645,24 @@ _no_config:
         // wait for the game to close then continue
         WaitForSingleObject(hProcess, (int) -1);
         CloseHandle(hProcess);
-        system("cls");
+        {
+            COORD pos = { 0, 8 };
+            HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+            SetConsoleCursorPosition(hOut, pos);
+        }
+        for (int a = 0; a <= 6; a++)
+        {
+            for (int i = 0; i <= 10; i++)
+            {
+                printf_s("               ");
+            }
+            printf_s("\n");
+        }
+        {
+            COORD pos = { 0, 8 };
+            HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+            SetConsoleCursorPosition(hOut, pos);
+        }
         goto __path_ok;
     }
 
@@ -656,7 +673,7 @@ _no_config:
         GamePath = GenGamePath;
         if (GetFileAttributesW(GamePath.c_str()) == INVALID_FILE_ATTRIBUTES)
         {
-            wprintf_s(L" Genshin Path Error!\n Plase open Genshin to set game path.\n 路径错误，请手动打开原神来设置游戏路径 \n");
+            wprintf_s(L"\n Genshin Path Error!\n Plase open Genshin to set game path.\n 路径错误，请手动打开原神来设置游戏路径 \n");
             goto _no_config;
         }
     }
@@ -665,7 +682,7 @@ _no_config:
         GamePath = HKSRGamePath;
         if (GetFileAttributesW(GamePath.c_str()) == INVALID_FILE_ATTRIBUTES)
         {
-            wprintf_s(L" HKSR Path Error!\n Plase open StarRail to set game path.\n 路径错误，请手动打开崩铁来设置游戏路径 \n");
+            wprintf_s(L"\n HKSR Path Error!\n Plase open StarRail to set game path.\n 路径错误，请手动打开崩铁来设置游戏路径 \n");
             goto _no_config;
         }   
     }
@@ -1007,6 +1024,7 @@ int main(/*int argc, char** argvA*/void)
 
     wprintf_s(L"FPS unlocker 2.8.4\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
 
+
     LPWSTR Command_arg = (LPWSTR)malloc(0x1000);
     if (!Command_arg)
     {
@@ -1017,17 +1035,17 @@ int main(/*int argc, char** argvA*/void)
     if (Init_Game_boot_arg(Command_arg) == 0)
         return 0; 
 
-    if (LoadConfig() == 0)
-        return 0;
-
-    if (GamePath.length() < 8)
-        return -1;
-
     if (init_NTAPI())
     {
         Show_Error_Msg(L"initAPI failed!");
         return -1;
     }
+
+    if (LoadConfig() == 0)
+        return 0;
+
+    if (GamePath.length() < 8)
+        return -1;
 
     _G_shellcode_buffer = init_shellcode();
     if (!_G_shellcode_buffer)
@@ -1078,7 +1096,7 @@ int main(/*int argc, char** argvA*/void)
             int state = MessageBoxW(NULL, L"Game has being running! \n游戏已在运行！\nYou can click Yes to auto close game or click Cancel to manually close. \n点击确定自动关闭游戏或手动关闭游戏后点取消\n", L"Error", 0x11);
             if (state == 1)
             {
-                HANDLE tempHandle = OpenProcess(PROCESS_TERMINATE, false, pid);
+                HANDLE tempHandle = OpenProcess_Internal(PROCESS_TERMINATE, pid);
                 TerminateProcess(tempHandle, 0);
                 CloseHandle(tempHandle);
                 Sleep(2000);
