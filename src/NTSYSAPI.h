@@ -14,7 +14,7 @@
 extern "C" NTSTATUS NTAPI asm_syscall();
 extern "C" void NTAPI asm_initpsc(DWORD* scnum);
 
-const BYTE buffer_call[0x200] = { 0 };
+const BYTE buffer_call[0x400] = { 0 };
 
 
 typedef struct _UNICODE_STRING {
@@ -93,7 +93,6 @@ typedef NTSTATUS(NTAPI* _ZwWriteVirtualMemory_Win64)(
     PSIZE_T   lpNumberOfBytesWritten
     );
 
-
 typedef NTSTATUS(NTAPI* _NtCreateSection_Win64)(
     PHANDLE SectionHandle, 
     ACCESS_MASK DesiredAccess, 
@@ -156,11 +155,12 @@ typedef BOOL(WINAPI* CreateProcessW_pWin64)(
     _Out_ LPPROCESS_INFORMATION lpProcessInformation
 );
 
+typedef DWORD(WINAPI* _RtlNtStatusToDosError_Win64)(DWORD Status);
 
 
-typedef DWORD(NTAPI* _RtlNtStatusToDosError_Win64)(DWORD Status);
 
-enum {
+enum 
+{
     WINDOWS_XP = 2600,
     WINDOWS_2003 = 3790,
     WINDOWS_VISTA = 6000,
@@ -191,14 +191,79 @@ enum {
 };
 
 
-typedef struct _PEB64 {
-    BYTE Reserved1[2];
-    BYTE BeingDebugged;
-    BYTE Reserved2[0x115];
+typedef struct _LIST_MOD {
+    struct MODULE_TABLE_ENTRY* Flink;
+    struct MODULE_TABLE_ENTRY* Blink;
+} _LIST_MOD, * P_LIST_MOD;
+
+typedef struct MODULE_TABLE_ENTRY 
+{
+    MODULE_TABLE_ENTRY* Next;
+    MODULE_TABLE_ENTRY* Last;
+    PVOID Reserved[2];
+    HMODULE ModBase;
+    PVOID EntryPoint;
+    PVOID Reserved3;
+    UNICODE_STRING FullDllName;
+    BYTE Reserved4[8];
+    PVOID Reserved5[3];
+    union 
+    {
+        ULONG CheckSum;
+        PVOID Reserved6;
+    };
+    ULONG TimeDateStamp;
+} MODULE_TABLE_ENTRY, * PMODULE_TABLE_ENTRY;
+
+typedef struct _PEB_LDR_DATA64
+{
+    ULONG Length;                                      //0x0
+    UCHAR Initialized;                                 //0x4
+    PVOID SsHandle;                                    //0x8
+    _LIST_ENTRY InLoadOrderModuleList;                 //0x10
+    _LIST_MOD InMemoryOrderModuleList;                 //0x20
+    _LIST_ENTRY InInitializationOrderModuleList;       //0x30
+    PVOID EntryInProgress;                             //0x40
+    UCHAR ShutdownInProgress;                          //0x48
+    PVOID ShutdownThreadId;                            //0x50
+}PEB_LDR_DATA64, * PPEB_LDR_DATA64;
+
+typedef struct PEB64
+{
+    UCHAR InheritedAddressSpace;                       //0x0
+    UCHAR ReadImageFileExecOptions;                    //0x1
+    UCHAR BeingDebugged;                               //0x2
+    union
+    {
+        UCHAR BitField;                                //0x3
+        struct
+        {
+            UCHAR ImageUsesLargePages : 1;             //0x3
+            UCHAR IsProtectedProcess : 1;              //0x3
+            UCHAR IsImageDynamicallyRelocated : 1;     //0x3
+            UCHAR SkipPatchingUser32Forwarders : 1;    //0x3
+            UCHAR IsPackagedProcess : 1;               //0x3
+            UCHAR IsAppContainer : 1;                  //0x3
+            UCHAR IsProtectedProcessLight : 1;         //0x3
+            UCHAR IsLongPathAwareProcess : 1;          //0x3
+        };
+    };
+    UCHAR Padding0[4];                                 //0x4
+    ULONGLONG Mutant;                                  //0x8
+    ULONGLONG ImageBaseAddress;                        //0x10
+    PEB_LDR_DATA64* Ldr;                               //0x18
+    ULONGLONG ProcessParameters;                       //0x20
+    ULONGLONG SubSystemData;                           //0x28
+    ULONGLONG ProcessHeap;                             //0x30
+    ULONGLONG FastPebLock;                             //0x38
+    ULONGLONG AtlThunkSListPtr;                        //0x40
+    ULONGLONG IFEOKey;                                 //0x48
+    BYTE Resevered[0xC8];
     ULONG OSMajorVersion;
     ULONG OSMinorVersion;
-    USHORT OSBuildNumber;
-} PEB64;
+    WORD OSBuildNumber;
+    BYTE Resevered1[14];
+}PEB64, * PPEB64;
 
 
 _ZwCreateThreadEx_Win64 ZwCreateThreadEx = 0;
@@ -247,7 +312,10 @@ __declspec(noinline) const wchar_t* FindFileVersion(const BYTE* ptr, size_t data
 //ntdll filever
 WORD ParseOSBuildBumber()
 {
-    HMODULE ntdll = 0;
+    PEB64* peb = reinterpret_cast<PEB64*>(__readgsqword(0x60));
+    PMODULE_TABLE_ENTRY list = peb->Ldr->InMemoryOrderModuleList.Flink->Next;//跳过第一个用户程序模块
+    HMODULE ntdll = list->ModBase;
+    if (!ntdll)
     {
         char str_ntdll[16] = { 0 };
         writebyte(str_ntdll, (~'n'));
@@ -312,7 +380,8 @@ int vm_strcmp(const char* str1, const char* str2)
     size_t pos = 0;
     do {
         c1 = *(str1++);
-        c2 = *(str2++);/*
+        c2 = *(str2++);
+        /*
         if (is_enc) {
             c1 ^= (_rotl32(FACE_STRING_DECRYPT_KEY, static_cast<int>(pos)) + pos);
             pos++;
@@ -407,80 +476,7 @@ void* GetProcAddress_Internal(HMODULE module, const char* proc_name)
     if (address < export_adress || address >= export_adress + export_size)
         return reinterpret_cast<FARPROC>(reinterpret_cast<uint8_t*>(module) + address);
 
-    // it is a forward
-    const char* name = reinterpret_cast<const char*>(reinterpret_cast<uint8_t*>(module) + address); // get a pointer to the module's name
-    const char* tmp = name;
-    const char* name_dot = NULL;
-    // get a pointer to the function's name
-    while (*tmp) 
-    {
-        if (*tmp == '.') 
-        {
-            name_dot = tmp;
-            break;
-        }
-        tmp++;
-    }
-    if (!name_dot)
-        return NULL;
-
-    size_t name_len = name_dot - name;
-    if (name_len >= MAX_PATH)
-        return NULL;
-
-    // copy module name
-    char file_name[MAX_PATH]{0};
-    size_t i;
-    for (i = 0; i < name_len && name[i] != 0; i++) 
-    {
-        file_name[i] = name[i];
-    }
-    file_name[i] = 0;
-
-    HMODULE tmp_module = GetModuleHandleA(file_name);
-
-    if (!tmp_module)
-        tmp_module = LoadLibraryA(file_name);
-
-    if (!tmp_module)
-        return NULL;
-
-    if (tmp_module == module) 
-    {
-        // forwarded to itself
-        /*if (is_enc) 
-        {
-            for (i = 0; i < sizeof(file_name); i++) 
-            {
-                char c = proc_name[i];
-                c ^= (_rotl32(FACE_STRING_DECRYPT_KEY, static_cast<int>(i)) + i);
-                file_name[i] = c;
-                if (!c)
-                    break;
-            }
-            proc_name = file_name;
-        }*/
-        return GetProcAddress(module, proc_name);
-    }
-
-    // now the function's name
-    // if it is not an ordinal, just forward it
-    if (name_dot[1] != '#')
-        return GetProcAddress_Internal(tmp_module, name_dot + 1);
-
-    // it is an ordinal
-    tmp = name_dot + 2;
-    int ordinal = 0;
-    while (*tmp) 
-    {
-        char c = *(tmp++);
-        if (c >= '0' && c <= '9') 
-            ordinal = ordinal * 10 + c - '0';
-        else 
-            break;
-        
-    }
-    return GetProcAddress_Internal(tmp_module, reinterpret_cast<const char*>(INT_PTR(ordinal)));
+    return 0;
 }
 
 
@@ -631,12 +627,15 @@ static HANDLE WINAPI OpenProcess_Internal(DWORD dwDesiredAccess, DWORD dwProcess
 
 static __forceinline void init_syscall_buff(void* buff, DWORD sc_CTEx, DWORD sc_alloc, DWORD sc_ptm, DWORD sc_writemem, DWORD sc_querymem, DWORD sc_openproc)
 {
-    //memset(buff, 0xCC, 0x200);
-    BYTE* startaddr = (BYTE*)buff + 0x20;
+    DWORD64 va = __rdtsc();
+    va &= 0x00000000000001F0;
+    BYTE* startaddr = (BYTE*)buff + va;
+    DWORD64 fir = 0xFFFFFFFFB8CA8949;
+    DWORD64 sec = 0xFBEB050FC3401F0F;
     for(int i = 0; i != 0x6; i++)
     {
-        *(DWORD64*)(startaddr + (i * 0x20)) = 0xFFFFFFFFB8CA8949;
-        *(DWORD64*)(startaddr + (i * 0x20) + 0x8) = 0xFBEB050FC3401F0F;
+        *(DWORD64*)(startaddr + (i * 0x20)) = fir;
+        *(DWORD64*)(startaddr + (i * 0x20) + 0x8) = sec;
     }
     *(DWORD*)(startaddr + 0x4) = sc_CTEx;
     ZwCreateThreadEx = (_ZwCreateThreadEx_Win64)startaddr;
@@ -659,8 +658,11 @@ static __forceinline void init_syscall_buff(void* buff, DWORD sc_CTEx, DWORD sc_
 
 static NTSTATUS init_NTAPI()
 {
-    HMODULE ntdll = 0;
-    HMODULE kernelbase = 0;
+    PEB64* peb = reinterpret_cast<PEB64*>(__readgsqword(0x60));
+    PMODULE_TABLE_ENTRY list = peb->Ldr->InMemoryOrderModuleList.Flink->Next;//跳过第一个用户程序模块
+    HMODULE ntdll = list->ModBase;
+    HMODULE kernel32 = list->Next->ModBase;
+    if (!ntdll)
     {
         char str_ntdll[16] = { 0 };
         writebyte(str_ntdll, (~'n'));
@@ -676,6 +678,7 @@ static NTSTATUS init_NTAPI()
     }
     if (!ntdll)
         return STATUS_DLL_NOT_FOUND;
+    if(!kernel32)
     {
         char str_kerneldll[16] = { 0 };
         writebyte(str_kerneldll, (~'k'));
@@ -692,14 +695,13 @@ static NTSTATUS init_NTAPI()
         writebyte(str_kerneldll, (~'d'));
         writebyte(str_kerneldll, (~'l'));
         writebyte(str_kerneldll, (~'l'));
-        kernelbase = LoadLibraryA(str_kerneldll);
+        kernel32 = LoadLibraryA(str_kerneldll);
     }
-    if (!kernelbase)
+    if (!kernel32)
         return STATUS_DLL_NOT_FOUND;
 
 
 #ifdef DirectCall
-    PEB64* peb = reinterpret_cast<PEB64*>(__readgsqword(0x60));  
     //uint16_t OSver = ParseOSBuildBumber(ntdll);以peb版本为准
     WORD OSver = peb->OSBuildNumber;
     bool init_OSver = 0;
@@ -915,12 +917,14 @@ static NTSTATUS init_NTAPI()
             {
                 init_syscall_buff((void*)(&buffer_call), sc_CreateThreadEx, sc_AllocMem, sc_ProtectMem, sc_WriteMem, sc_VirtualQuery, sc_OpenProc);
                 ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)((HANDLE)-1, (void**)(&addr), &i, PAGE_EXECUTE_READ, &old);
+                
             }
-            asm_initpsc(0);
             if (ret)
             {
                 return ret;
             }
+            asm_initpsc(0);
+            
             goto __other_init;
         }
     }
@@ -1112,7 +1116,7 @@ __other_init:
         writebyte(str_createproc, (~'s'));
         writebyte(str_createproc, (~'s'));
         writebyte(str_createproc, (~'W'));
-        CreateProcessW_internal = (CreateProcessW_pWin64)GetProcAddress_Internal(kernelbase, str_createproc);
+        CreateProcessW_internal = (CreateProcessW_pWin64)GetProcAddress_Internal(kernel32, str_createproc);
     }
     if (!CreateProcessW_internal)
     {
@@ -1131,7 +1135,7 @@ __other_init:
         writebyte(str_openproc, (~'e'));
         writebyte(str_openproc, (~'s'));
         writebyte(str_openproc, (~'s'));
-        p_OpenProcess = (DWORD64)GetProcAddress_Internal(kernelbase, str_openproc);
+        p_OpenProcess = (DWORD64)GetProcAddress_Internal(kernel32, str_openproc);
     }
     if (!p_OpenProcess)
     {
