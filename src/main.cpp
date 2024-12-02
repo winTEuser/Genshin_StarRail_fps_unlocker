@@ -23,8 +23,8 @@
 #include <immintrin.h>
 #include <intrin.h>
 #include "fastmemcp.h"
-#include "inireader.h"
 #include "NTSYSAPI.h"
+#include "inireader.h"
 
 
 #ifndef _WIN64
@@ -243,10 +243,6 @@ static INLINE void* memcpy_mm(void* dst, const void* src, size_t size)
 {
     if (is_supportAVX)
     {
-        if (size % 0x100 || (((uint64_t)dst << 60) >> 60) || (((uint64_t)src << 60) >> 60))
-        {
-            return memmove(dst, src, size);
-        }
         size /= 0x100;
         size_t i = 0;
         do
@@ -827,61 +823,20 @@ static bool Init_Game_boot_arg(LPWSTR CommandLinew)
 }
 
 // Hotpatch
-static uint64_t inject_patch(LPVOID text_buffer, uint32_t text_size, uintptr_t _text_baseaddr, uintptr_t _ptr_fps, HANDLE Tar_handle, DWORD Ptr_Rva)
+static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t para, uintptr_t _ptr_fps,  DWORD Ptr_Rva)
 {
-    if ((!text_buffer) || (!text_size) || (!_text_baseaddr) || (!_ptr_fps))
+    if (!_ptr_fps)
         return 0;
-
-    DWORD64 Module_TarSec_RVA = (DWORD64)text_buffer;
-    DWORD Module_TarSec_Size = text_size;
-
-    DWORD64 address = 0;
 
     BYTE* _sc_buffer = _G_shellcode_buffer;
 
-    if (!isGenshin)
-    {
-        isHook = 0;
-        if (address = PatternScan_Region(Module_TarSec_RVA, Module_TarSec_Size, "CC 89 0D ?? ?? ?? ?? E9 ?? ?? ?? ?? CC CC CC CC CC"))
-        {
-            int64_t rip = address;
-            rip += 3;
-            rip += *(int32_t*)(rip)+4;
-            if ((rip - (uintptr_t)Module_TarSec_RVA + (uintptr_t)_text_baseaddr) == _ptr_fps)
-            {
-                DWORD64 Patch0_addr = address + 1;
-                DWORD64 Patch0_addr_hook = Patch0_addr - (uintptr_t)Module_TarSec_RVA + (uintptr_t)_text_baseaddr;
-                *(uint8_t*)Patch0_addr = 0x8B;      //mov dword ptr ds:[?????????], ecx   -->  mov ecx, dword ptr ds:[?????????]
-                if (WriteProcessMemoryInternal(Tar_handle, (LPVOID)Patch0_addr_hook, (LPVOID)Patch0_addr, 0x1, 0) == 0)
-                {
-                    Show_Error_Msg(L"Patch Fail! ");
-                    return 0;
-                }
-                goto ___patcher;
-            }
-        }
-        Show_Error_Msg(L"Get pattern Fail! ");
-        return 0;
-    }
     //genshin_get_gameset
-    if (isHook)
+    if (isGenshin && isHook)
     {
-        address = PatternScan_Region(Module_TarSec_RVA, Module_TarSec_Size, "48 89 F1 E8 ?? ?? ?? ?? 8B 3D ?? ?? ?? ?? 48 8B 0D");
-        if (address)
-        {
-            int64_t rip = address;
-            rip += 10;
-            rip += *(int32_t*)rip;
-            rip += 4;
-            *(uint64_t*)(_sc_buffer + 0x10) = rip - Module_TarSec_RVA + _text_baseaddr;
-            *(uint32_t*)(_sc_buffer + 0x12C) = Target_set_60;
-            *(uint32_t*)(_sc_buffer + 0x134) = Target_set_30;
-        }
-        else isHook = 0;
+        *(uint64_t*)(_sc_buffer + 0x10) = para;
     }
 
-    //shellcode patcher
-___patcher:
+    //shellcode patch
     *(uint64_t*)(_sc_buffer + 0x8) = (uint64_t)(&FpsValue); //source ptr
     *(uint64_t*)(_sc_buffer + 0x18) = _ptr_fps;
 
@@ -1210,7 +1165,7 @@ __Get_target_sec:
             rip += *(int32_t*)(rip)+6;
             rip += *(int32_t*)(rip)+4;
             pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-            goto __offset_ok;
+            goto __genshin_il;
         }
         address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "7F 0F 8B 05 ?? ?? ?? ?? 66 0F 6E C8"); // ver old
         if (address)
@@ -1219,7 +1174,7 @@ __Get_target_sec:
             rip += 4;
             rip += *(int32_t*)(rip) + 4;
             pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-            goto __offset_ok;
+            goto __genshin_il;
         }
         Show_Error_Msg(L"Genshin Pattern Outdated!\nPlase wait new update in github.\n\n");
         CloseHandle(pi->hProcess);
@@ -1228,6 +1183,7 @@ __Get_target_sec:
     }
     else
     {
+        isHook = 0;
         address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "66 0F 6E 05 ?? ?? ?? ?? F2 0F 10 3D ?? ?? ?? ?? 0F 5B C0"); //ver 1.0 - last
         if (address)
         {
@@ -1235,7 +1191,26 @@ __Get_target_sec:
             rip += 4;
             rip += *(int32_t*)(rip) + 4;
             pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-            goto __offset_ok;
+            
+            if (address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "CC 89 0D ?? ?? ?? ?? E9 ?? ?? ?? ?? CC CC CC CC CC"))
+            {
+                int64_t rip = address;
+                rip += 3;
+                rip += *(int32_t*)(rip)+4;
+                if ((rip - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA) == pfps)
+                {
+                    rip = address + 1;
+                    DWORD64 Patch0_addr_hook = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                    *(uint8_t*)rip = 0x8B;      //mov dword ptr ds:[?????????], ecx   -->  mov ecx, dword ptr ds:[?????????]
+                    if (WriteProcessMemoryInternal(pi->hProcess, (LPVOID)Patch0_addr_hook, (LPVOID)rip, 0x1, 0) == 0)
+                    {
+                        Show_Error_Msg(L"Patch Fail! ");
+                    }
+                    goto __Continue;
+                }
+            }
+            Show_Error_Msg(L"Get pattern Fail! ");
+            goto __Continue;
         }
         Show_Error_Msg(L"StarRail Pattern Outdated!\nPlase wait new update in github.\n\n");
         CloseHandle(pi->hProcess);
@@ -1243,15 +1218,16 @@ __Get_target_sec:
         return (int)-1;
     }
     //-------------------------------------------------------------------------------------------------------------------------------------------------//
-__offset_ok:
-    if (isGenshin && isHook)
+
+__genshin_il:
     {
         uintptr_t UA_baseAddr = Unityplayer_baseAddr;
         if (is_old_version)
         {
             if (!GetRemoteModulePEinfo(pi->hProcess, L"UserAssembly.dll", _mbase_PE_buffer, &UA_baseAddr))
             {
-                goto __procfail;
+                isHook = 0;
+                goto __Continue;
             }
         }
         if (Get_Section_info((uintptr_t)_mbase_PE_buffer, "il2cpp", &Text_Vsize, &Text_Remote_RVA, UA_baseAddr))
@@ -1259,7 +1235,6 @@ __offset_ok:
             goto __Get_sec_ok;
         }
         Show_Error_Msg(L"Get Section Fail! (il2cpp_GI)");
-            
     __procfail:
         isHook = 0;
         goto __Continue;
@@ -1277,9 +1252,21 @@ __offset_ok:
             Show_Error_Msg(L"Readmem Fail ! (il2cpp_GI)");
             goto __procfail;
         }
+        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 89 F1 E8 ?? ?? ?? ?? 8B 3D ?? ?? ?? ?? 48 8B 0D");
+        if (address)
+        {
+            int64_t rip = address;
+            rip += 10;
+            rip += *(int32_t*)rip;
+            rip += 4;
+            address = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            goto __Continue;
+        }
+        isHook = 0;
     }
+
 __Continue:
-    uintptr_t Patch_buffer = inject_patch(Copy_Text_VA, Text_Vsize, Text_Remote_RVA, pfps, pi->hProcess, Hksr_ui_Rva);
+    uintptr_t Patch_buffer = inject_patch(pi->hProcess, address, pfps, Hksr_ui_Rva);
     if (!Patch_buffer)
     {
         Show_Error_Msg(L"Inject Fail !\n");

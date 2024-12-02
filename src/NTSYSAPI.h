@@ -9,7 +9,12 @@
 #error this API define only work for Win64
 #endif
 
-#define DirectCall
+#define CREATE_THREAD_INITFAILED (0xC1)
+#define ALLOC_INITFAILED (0xC2)
+#define WRITE_VIRTUAL_MEM_INITFAILED (0xC3)
+#define VIRTUAL_PROTECT_INITFAILED (0xC4)
+#define VIRTUAL_QUERY_INITFAILED (0xC5)
+#define OPEN_PROCESS_INITFAILED (0xC6)
 
 extern "C" NTSTATUS NTAPI asm_syscall();
 extern "C" void NTAPI asm_initpsc(DWORD* scnum);
@@ -51,7 +56,7 @@ typedef struct CLIENT_ID
 }CLIENT_ID, * PCLIENT_ID;
 
 
-typedef NTSTATUS(NTAPI* _ZwCreateThreadEx_Win64)(
+typedef NTSTATUS(NTAPI* _NtCreateThreadEx_Win64)(
     PHANDLE ThreadHandle,//out
     ACCESS_MASK DesiredAccess,//in
     LPVOID ObjectAttributes,//in
@@ -76,7 +81,7 @@ typedef NTSTATUS(NTAPI* _NtCreateThread_Win64)(
     BOOLEAN     CreateSuspended
     );
 
-typedef NTSTATUS(NTAPI* _ZwAllocateVirtualMemory_Win64)(
+typedef NTSTATUS(NTAPI* _NtAllocateVirtualMemory_Win64)(
     HANDLE    ProcessHandle,
     PVOID*    BaseAddress,
     ULONG_PTR ZeroBits,
@@ -85,7 +90,7 @@ typedef NTSTATUS(NTAPI* _ZwAllocateVirtualMemory_Win64)(
     ULONG     Protect
     );
 
-typedef NTSTATUS(NTAPI* _ZwWriteVirtualMemory_Win64)(
+typedef NTSTATUS(NTAPI* _NtWriteVirtualMemory_Win64)(
     HANDLE    ProcessHandle,
     LPVOID    TargetAddress,
     LPVOID    SrcBuffer,
@@ -156,7 +161,6 @@ typedef BOOL(WINAPI* CreateProcessW_pWin64)(
 );
 
 typedef DWORD(WINAPI* _RtlNtStatusToDosError_Win64)(DWORD Status);
-
 
 
 enum 
@@ -266,10 +270,9 @@ typedef struct PEB64
 }PEB64, * PPEB64;
 
 
-_ZwCreateThreadEx_Win64 ZwCreateThreadEx = 0;
-//_NtCreateThread_Win64 NtCreateThread = 0;
-_ZwAllocateVirtualMemory_Win64 ZwAllocateVirtualMemory = 0;
-_ZwWriteVirtualMemory_Win64 ZwWriteVirtualMemory = 0;
+_NtCreateThreadEx_Win64 NtCreateThreadEx = 0;
+_NtAllocateVirtualMemory_Win64 NtAllocateVirtualMemory = 0;
+_NtWriteVirtualMemory_Win64 NtWriteVirtualMemory = 0;
 _NtProtectVirtualMemory_Win64 NtProtectVirtualMemory = 0;
 _NtQueryVirtualMemory_Win64 NtQueryVirtualMemory = 0;
 _NtOpenProcess_Win64 NtOpenProcess = 0;
@@ -371,6 +374,27 @@ WORD ParseOSBuildBumber()
         }
     }
     return os_build_number;
+}
+
+int __forceinline ParseSyscallscNum(void* func, DWORD* scNum) 
+{
+    if (func)
+    {
+        if (*(DWORD*)func == 0xB8D18B4C)
+        {
+            *scNum = *(DWORD*)((DWORD64)func + 4);
+            return 1;
+        }
+        if (*(BYTE*)func == 0xE9)
+        {
+            return -1;
+        }
+        if (*(WORD*)func == 0x25FF)
+        {
+            return -1;
+        }
+    }
+    return 0;
 }
 
 int vm_strcmp(const char* str1, const char* str2)
@@ -485,6 +509,7 @@ static void BaseSetLastNTError_inter(DWORD Status)
     return SetLastError(RtlNtStatusToDosError(Status));
 }
 
+
 static BOOLEAN WINAPI VirtualProtect_Internal(HANDLE procHandle, LPVOID baseAddr, size_t size, DWORD protect, DWORD* oldp)
 {
     if(!NtProtectVirtualMemory)
@@ -511,13 +536,13 @@ static BOOLEAN WINAPI VirtualProtect_Internal(HANDLE procHandle, LPVOID baseAddr
 
 static PVOID WINAPI VirtualAllocEx_Internal(HANDLE procHandle, PVOID* dst_baseaddr, size_t size, DWORD protect)
 {
-    if (!ZwAllocateVirtualMemory)
+    if (!NtAllocateVirtualMemory)
     {
         BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
         return 0;
     }
     void* baseaddr = dst_baseaddr;
-    NTSTATUS ret = ZwAllocateVirtualMemory(procHandle, &baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
+    NTSTATUS ret = NtAllocateVirtualMemory(procHandle, &baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
     if (ret)
     {
         BaseSetLastNTError_inter(ret);
@@ -526,15 +551,16 @@ static PVOID WINAPI VirtualAllocEx_Internal(HANDLE procHandle, PVOID* dst_basead
     return baseaddr;
 }
 
+
 static PVOID WINAPI VirtualAlloc_Internal(PVOID* dst_baseaddr, size_t size, DWORD protect)
 {
-    if (!ZwAllocateVirtualMemory)
+    if (!NtAllocateVirtualMemory)
     {
         BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
         return 0;
     }
     void* baseaddr = dst_baseaddr;
-    NTSTATUS ret = ZwAllocateVirtualMemory((HANDLE)-1, &baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
+    NTSTATUS ret = NtAllocateVirtualMemory((HANDLE)-1, &baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
     if (ret)
     {
         BaseSetLastNTError_inter(ret);
@@ -546,7 +572,7 @@ static PVOID WINAPI VirtualAlloc_Internal(PVOID* dst_baseaddr, size_t size, DWOR
 
 static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, LPVOID dst_baseaddr, LPVOID src_buffer, size_t size, size_t* writenum)
 {
-    if (!ZwWriteVirtualMemory)
+    if (!NtWriteVirtualMemory)
     {
         BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
         return 0;
@@ -560,7 +586,7 @@ static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, LPVOID dst_b
         goto __failed;
     if (temp.Protect & 0xCC)
     {
-        ret = ZwWriteVirtualMemory(procHandle, dst_baseaddr, src_buffer, size, &tsize);
+        ret = NtWriteVirtualMemory(procHandle, dst_baseaddr, src_buffer, size, &tsize);
         if (ret)
             goto __failed;
 
@@ -570,7 +596,7 @@ static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, LPVOID dst_b
     }
     else if (VirtualProtect_Internal(procHandle, dst_baseaddr, size, 0x60000040, &oldp))
     {
-        ret = ZwWriteVirtualMemory(procHandle, dst_baseaddr, src_buffer, size, &tsize);
+        ret = NtWriteVirtualMemory(procHandle, dst_baseaddr, src_buffer, size, &tsize);
         if (ret)
             goto __failed;
         
@@ -586,13 +612,13 @@ __failed:
 
 static HANDLE WINAPI CreateThread_Internal(HANDLE procHandle, LPSECURITY_ATTRIBUTES lpThreadAttributes, LPTHREAD_START_ROUTINE lpStartAddress, LPVOID lpParameter)
 {
-    if (!ZwCreateThreadEx)
+    if (!NtCreateThreadEx)
     {
         BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
         return 0;
     }
     HANDLE retHandle = 0;
-    NTSTATUS status = ZwCreateThreadEx(&retHandle, 0x1FFFF, 0, procHandle, lpStartAddress, lpParameter, 0, 0, 0xC000, 0x30000, 0);
+    NTSTATUS status = NtCreateThreadEx(&retHandle, 0x1FFFF, 0, procHandle, lpStartAddress, lpParameter, 0, 0, 0xC000, 0x30000, 0);
     if (status)
     {
         BaseSetLastNTError_inter(status);
@@ -628,26 +654,27 @@ static HANDLE WINAPI OpenProcess_Internal(DWORD dwDesiredAccess, DWORD dwProcess
 static __forceinline void init_syscall_buff(void* buff, DWORD sc_CTEx, DWORD sc_alloc, DWORD sc_ptm, DWORD sc_writemem, DWORD sc_querymem, DWORD sc_openproc)
 {
     DWORD64 va = __rdtsc();
-    va &= 0x00000000000001F0;
+    va = (va >> 16) * (va >> 32);
+    va &= 0x1F0;
     BYTE* startaddr = (BYTE*)buff + va;
     DWORD64 fir = 0xFFFFFFFFB8CA8949;
-    DWORD64 sec = 0xFBEB050FC3401F0F;
+    DWORD64 sec = 0xC348050FB8481F0F;
     for(int i = 0; i != 0x6; i++)
     {
         *(DWORD64*)(startaddr + (i * 0x20)) = fir;
         *(DWORD64*)(startaddr + (i * 0x20) + 0x8) = sec;
     }
     *(DWORD*)(startaddr + 0x4) = sc_CTEx;
-    ZwCreateThreadEx = (_ZwCreateThreadEx_Win64)startaddr;
+    NtCreateThreadEx = (_NtCreateThreadEx_Win64)startaddr;
     startaddr += 0x20;
     *(DWORD*)(startaddr + 0x4) = sc_alloc;
-    ZwAllocateVirtualMemory = (_ZwAllocateVirtualMemory_Win64)startaddr;
+    NtAllocateVirtualMemory = (_NtAllocateVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
     *(DWORD*)(startaddr + 0x4) = sc_ptm;
     NtProtectVirtualMemory = (_NtProtectVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
     *(DWORD*)(startaddr + 0x4) = sc_writemem;
-    ZwWriteVirtualMemory = (_ZwWriteVirtualMemory_Win64)startaddr;
+    NtWriteVirtualMemory = (_NtWriteVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
     *(DWORD*)(startaddr + 0x4) = sc_querymem;
     NtQueryVirtualMemory = (_NtQueryVirtualMemory_Win64)startaddr;
@@ -700,19 +727,17 @@ static NTSTATUS init_NTAPI()
     if (!kernel32)
         return STATUS_DLL_NOT_FOUND;
 
-
-#ifdef DirectCall
     //uint16_t OSver = ParseOSBuildBumber(ntdll);以peb版本为准
     WORD OSver = peb->OSBuildNumber;
     bool init_OSver = 0;
+    DWORD sc_CreateThreadEx = 0;
+    DWORD sc_AllocMem = 0;
+    DWORD sc_WriteMem = 0;
+    DWORD sc_ProtectMem = 0;
+    DWORD sc_VirtualQuery = 0;
+    DWORD sc_OpenProc = 0;
     if (OSver)
     {
-        DWORD sc_CreateThreadEx = 0;
-        DWORD sc_AllocMem = 0;
-        DWORD sc_WriteMem = 0;
-        DWORD sc_ProtectMem = 0;
-        DWORD sc_VirtualQuery = 0;
-        DWORD sc_OpenProc = 0;
         if (OSver == WINDOWS_11_24H2)
         {
             sc_CreateThreadEx = 0xc9;
@@ -903,32 +928,8 @@ static NTSTATUS init_NTAPI()
             sc_OpenProc = 0x23;
             init_OSver = 1;
         }
-        if (init_OSver)
-        {
-            
-            asm_initpsc(&sc_ProtectMem);
-
-            size_t i = 0x1000;
-            DWORD old = 0;
-            uintptr_t addr = (uintptr_t)(&buffer_call);
-            addr &= 0xFFFFFFFFFFFFF000;
-            NTSTATUS ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)((HANDLE)-1, (void**)(&addr), &i, PAGE_EXECUTE_READWRITE, &old);
-            if (!ret)
-            {
-                init_syscall_buff((void*)(&buffer_call), sc_CreateThreadEx, sc_AllocMem, sc_ProtectMem, sc_WriteMem, sc_VirtualQuery, sc_OpenProc);
-                ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)((HANDLE)-1, (void**)(&addr), &i, PAGE_EXECUTE_READ, &old);
-                
-            }
-            if (ret)
-            {
-                return ret;
-            }
-            asm_initpsc(0);
-            
-            goto __other_init;
-        }
+        goto __init_Internalcall;
     }
-#endif
     if(1)
     {
         char str_zct[24] = { 0 };
@@ -948,11 +949,12 @@ static NTSTATUS init_NTAPI()
         writebyte(str_zct, (~'d'));
         writebyte(str_zct, (~'E'));
         writebyte(str_zct, (~'x'));
-        ZwCreateThreadEx = (_ZwCreateThreadEx_Win64)GetProcAddress_Internal(ntdll, str_zct);
-    }
-    if (!ZwCreateThreadEx)
-    {
-        return 0xC1;
+        void* NtCTE = GetProcAddress_Internal(ntdll, str_zct);
+        int i = ParseSyscallscNum(NtCTE, &sc_CreateThreadEx);
+        if (i != 1)
+        {
+            return CREATE_THREAD_INITFAILED;
+        }
     }
     {
         char str_alloc[32] = { 0 };
@@ -979,11 +981,12 @@ static NTSTATUS init_NTAPI()
         writebyte(str_alloc, (~'o'));
         writebyte(str_alloc, (~'r'));
         writebyte(str_alloc, (~'y'));
-        ZwAllocateVirtualMemory = (_ZwAllocateVirtualMemory_Win64)GetProcAddress_Internal(ntdll, str_alloc);
-    }
-    if (!ZwAllocateVirtualMemory)
-    {
-        return 0xC2;
+        void* NtAlloc = GetProcAddress_Internal(ntdll, str_alloc);
+        int i = ParseSyscallscNum(NtAlloc, &sc_AllocMem);
+        if (i != 1)
+        {
+            return ALLOC_INITFAILED;
+        }
     }
     {
         char str_wrtMem[32] = { 0 };
@@ -1007,11 +1010,12 @@ static NTSTATUS init_NTAPI()
         writebyte(str_wrtMem, (~'o'));
         writebyte(str_wrtMem, (~'r'));
         writebyte(str_wrtMem, (~'y'));
-        ZwWriteVirtualMemory = (_ZwWriteVirtualMemory_Win64)GetProcAddress_Internal(ntdll, str_wrtMem);
-    }
-    if (!ZwWriteVirtualMemory)
-    {
-        return 0xC3;
+        void* NtWriteMem = GetProcAddress_Internal(ntdll, str_wrtMem);
+        int i = ParseSyscallscNum(NtWriteMem, &sc_WriteMem);
+        if (i != 1)
+        {
+            return WRITE_VIRTUAL_MEM_INITFAILED;
+        }
     }
     {
         char str_protectMem[32] = { 0 };
@@ -1037,11 +1041,12 @@ static NTSTATUS init_NTAPI()
         writebyte(str_protectMem, (~'o'));
         writebyte(str_protectMem, (~'r'));
         writebyte(str_protectMem, (~'y'));
-        NtProtectVirtualMemory = (_NtProtectVirtualMemory_Win64)GetProcAddress_Internal(ntdll, str_protectMem);
-    }
-    if (!NtProtectVirtualMemory)
-    {
-        return 0xC4;
+        void* NtPVM = GetProcAddress_Internal(ntdll, str_protectMem);
+        int i = ParseSyscallscNum(NtPVM, &sc_ProtectMem);
+        if (i != 1)
+        {
+            return VIRTUAL_PROTECT_INITFAILED;
+        }
     }
     {
         char str_QueryMem[32] = { 0 };
@@ -1065,11 +1070,12 @@ static NTSTATUS init_NTAPI()
         writebyte(str_QueryMem, (~'o'));
         writebyte(str_QueryMem, (~'r'));
         writebyte(str_QueryMem, (~'y'));
-        NtQueryVirtualMemory = (_NtQueryVirtualMemory_Win64)GetProcAddress_Internal(ntdll, str_QueryMem);
-    }
-    if (!NtQueryVirtualMemory)
-    {
-        return 0xC5;
+        void* NtQVM = GetProcAddress_Internal(ntdll, str_QueryMem);
+        int i = ParseSyscallscNum(NtQVM, &sc_VirtualQuery);
+        if (i != 1)
+        {
+            return VIRTUAL_QUERY_INITFAILED;
+        }
     }
     {
         char str_openproc[16] = { 0 };
@@ -1086,15 +1092,39 @@ static NTSTATUS init_NTAPI()
         writebyte(str_openproc, (~'e'));
         writebyte(str_openproc, (~'s'));
         writebyte(str_openproc, (~'s'));
-        NtOpenProcess = (_NtOpenProcess_Win64)GetProcAddress_Internal(ntdll, str_openproc);
+        void* NtOpenProc = GetProcAddress_Internal(ntdll, str_openproc);
+        int i = ParseSyscallscNum(NtOpenProc, &sc_OpenProc);
+        if (i != 1)
+        {
+            return OPEN_PROCESS_INITFAILED;
+        }
     }
-    if (!NtOpenProcess)
+    init_OSver = 1;
+
+__init_Internalcall:
+    if (init_OSver)
     {
-        return 0xC6;
+
+        asm_initpsc(&sc_ProtectMem);
+
+        size_t i = 0x1000;
+        DWORD old = 0;
+        uintptr_t addr = (uintptr_t)(&buffer_call);
+        addr &= 0xFFFFFFFFFFFFF000;
+        NTSTATUS ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)((HANDLE)-1, (void**)(&addr), &i, PAGE_EXECUTE_READWRITE, &old);
+        if (!ret)
+        {
+            init_syscall_buff((void*)(&buffer_call), sc_CreateThreadEx, sc_AllocMem, sc_ProtectMem, sc_WriteMem, sc_VirtualQuery, sc_OpenProc);
+            ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)((HANDLE)-1, (void**)(&addr), &i, PAGE_EXECUTE_READ, &old);
+        }
+        if (ret)
+        {
+            return ret;
+        }
+        asm_initpsc(0);
+
     }
 
-    
-__other_init:
     RtlNtStatusToDosError = (_RtlNtStatusToDosError_Win64)GetProcAddress_Internal(ntdll, "RtlNtStatusToDosError");
     if (!RtlNtStatusToDosError)
     {

@@ -25,7 +25,7 @@
 		je err
 		mov eax, dword ptr [rax]
 		mov r10, rcx
-		db 66h
+		db 48h
 		dd 0b8481F0Fh
 		syscall
 		cdqe
