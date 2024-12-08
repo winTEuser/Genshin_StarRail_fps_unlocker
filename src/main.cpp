@@ -8,20 +8,15 @@
 #define CONFIG_FILENAME L"hoyofps_config.ini"
 #define IsKeyPressed(nVirtKey)    ((GetKeyState(nVirtKey) & (1<<(sizeof(SHORT)*8-1))) != 0)
 
-#include <Windows.h>
-#include <TlHelp32.h>
-#include <stdlib.h>
+#include <iostream>
 #include <vector>
 #include <string>
-#include <thread>
-#include <Psapi.h>
-#include <iostream>
-#include <locale>
-#include <codecvt>
-#include <iomanip>
 #include <locale.h>
-#include <immintrin.h>
 #include <intrin.h>
+
+#include <Windows.h>
+#include <TlHelp32.h>
+
 #include "fastmemcp.h"
 #include "NTSYSAPI.h"
 #include "inireader.h"
@@ -990,11 +985,7 @@ int main(/*int argc, char** argvA*/void)
     if (Init_Game_boot_arg(Command_arg) == 0)
         return 0; 
 
-    if (init_NTAPI())
-    {
-        Show_Error_Msg(L"initAPI failed!");
-        return -1;
-    }
+    
 
     if (LoadConfig() == 0)
         return 0;

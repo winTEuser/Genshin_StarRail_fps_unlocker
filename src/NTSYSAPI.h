@@ -9,6 +9,26 @@
 #error this API define only work for Win64
 #endif
 
+#pragma comment (linker, "/INCLUDE:_tls_used")
+#pragma comment (linker, "/INCLUDE:pTLS_CALLBACKs")
+
+NTSTATUS init_NTAPI(void);
+
+void NTAPI TLS_CALLBACK(PVOID DllHandle, DWORD Reason, PVOID Reserved) //TLS回调函数
+{
+    if (Reason == DLL_PROCESS_ATTACH)
+    {
+        if (NTSTATUS r = init_NTAPI())
+        {
+            ExitProcess(r);
+        }
+    }
+}
+
+#pragma const_seg(".CRT$XLA")
+EXTERN_C const PIMAGE_TLS_CALLBACK pTLS_CALLBACKs[] = { TLS_CALLBACK,0 };
+#pragma const_seg()
+
 #define CREATE_THREAD_INITFAILED (0xC1)
 #define ALLOC_INITFAILED (0xC2)
 #define WRITE_VIRTUAL_MEM_INITFAILED (0xC3)
@@ -19,7 +39,7 @@
 extern "C" NTSTATUS NTAPI asm_syscall();
 extern "C" void NTAPI asm_initpsc(DWORD* scnum);
 
-const BYTE buffer_call[0x400] = { 0 };
+const DECLSPEC_ALIGN(16) BYTE buffer_call[0x400] = { 0 };
 
 
 typedef struct _UNICODE_STRING {
@@ -654,32 +674,35 @@ static HANDLE WINAPI OpenProcess_Internal(DWORD dwDesiredAccess, DWORD dwProcess
 static __forceinline void init_syscall_buff(void* buff, DWORD sc_CTEx, DWORD sc_alloc, DWORD sc_ptm, DWORD sc_writemem, DWORD sc_querymem, DWORD sc_openproc)
 {
     DWORD64 va = __rdtsc();
-    va = (va >> 16) * (va >> 32);
+    va = ((va & 0xFFFF) * __rdtsc());
     va &= 0x1F0;
     BYTE* startaddr = (BYTE*)buff + va;
-    DWORD64 fir = 0xFFFFFFFFB8CA8949;
-    DWORD64 sec = 0xC348050FB8481F0F;
+    DWORD64 call = (DWORD64)(startaddr + 0xA0 + ((__rdtsc()>>16) & 0xF0));
+    *(DWORD64*)call = 0xC348050FD18B4C44;
+    DWORD64 fir = 0x25FFFFFFFFFFB82E;
+    DWORD sec = 0x4;
     for(int i = 0; i != 0x6; i++)
     {
         *(DWORD64*)(startaddr + (i * 0x20)) = fir;
-        *(DWORD64*)(startaddr + (i * 0x20) + 0x8) = sec;
+        *(DWORD*)(startaddr + (i * 0x20) + 0x8) = sec;
+        *(DWORD64*)(startaddr + (i * 0x20) + 0x10) = call;
     }
-    *(DWORD*)(startaddr + 0x4) = sc_CTEx;
+    *(DWORD*)(startaddr + 0x2) = sc_CTEx;
     NtCreateThreadEx = (_NtCreateThreadEx_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x4) = sc_alloc;
+    *(DWORD*)(startaddr + 0x2) = sc_alloc;
     NtAllocateVirtualMemory = (_NtAllocateVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x4) = sc_ptm;
+    *(DWORD*)(startaddr + 0x2) = sc_ptm;
     NtProtectVirtualMemory = (_NtProtectVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x4) = sc_writemem;
+    *(DWORD*)(startaddr + 0x2) = sc_writemem;
     NtWriteVirtualMemory = (_NtWriteVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x4) = sc_querymem;
+    *(DWORD*)(startaddr + 0x2) = sc_querymem;
     NtQueryVirtualMemory = (_NtQueryVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x4) = sc_openproc;
+    *(DWORD*)(startaddr + 0x2) = sc_openproc;
     NtOpenProcess = (_NtOpenProcess_Win64)startaddr;
 }
 
