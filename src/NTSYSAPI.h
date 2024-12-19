@@ -9,17 +9,20 @@
 #error this API define only work for Win64
 #endif
 
+
 #pragma comment (linker, "/INCLUDE:_tls_used")
 #pragma comment (linker, "/INCLUDE:pTLS_CALLBACKs")
 
-NTSTATUS init_NTAPI(void);
+NTSTATUS init_API(void);
 
-void NTAPI TLS_CALLBACK(PVOID DllHandle, DWORD Reason, PVOID Reserved) //TLS回调函数
+void NTAPI TLS_CALLBACK(PVOID DllHandle, DWORD Reason, PVOID Reserved)
 {
     if (Reason == DLL_PROCESS_ATTACH)
     {
-        if (NTSTATUS r = init_NTAPI())
+        if (NTSTATUS r = init_API())
         {
+            printf_s("\nInit Error: 0x%X", r);
+            MessageBoxA(0, "InitAPI failed!", "An Error has occurred!", 0x10);
             ExitProcess(r);
         }
     }
@@ -29,6 +32,7 @@ void NTAPI TLS_CALLBACK(PVOID DllHandle, DWORD Reason, PVOID Reserved) //TLS回�
 EXTERN_C const PIMAGE_TLS_CALLBACK pTLS_CALLBACKs[] = { TLS_CALLBACK,0 };
 #pragma const_seg()
 
+
 #define CREATE_THREAD_INITFAILED (0xC1)
 #define ALLOC_INITFAILED (0xC2)
 #define WRITE_VIRTUAL_MEM_INITFAILED (0xC3)
@@ -37,7 +41,8 @@ EXTERN_C const PIMAGE_TLS_CALLBACK pTLS_CALLBACKs[] = { TLS_CALLBACK,0 };
 #define OPEN_PROCESS_INITFAILED (0xC6)
 
 extern "C" NTSTATUS NTAPI asm_syscall();
-extern "C" void NTAPI asm_initpsc(DWORD* scnum);
+extern "C" void NTAPI asm_initsc(DWORD scnum);
+extern "C" void NTAPI asm_initaddr(void* syscalladdr);
 
 const DECLSPEC_ALIGN(16) BYTE buffer_call[0x400] = { 0 };
 
@@ -301,6 +306,8 @@ _RtlNtStatusToDosError_Win64 RtlNtStatusToDosError = 0;
 CreateProcessW_pWin64 CreateProcessW_internal = 0;
 DWORD64 p_OpenProcess = 0;
 
+DWORD init_Status = -1;
+
 static void writebyte(void* dst, BYTE num)
 {
     size_t i = 0;
@@ -417,7 +424,7 @@ int __forceinline ParseSyscallscNum(void* func, DWORD* scNum)
     return 0;
 }
 
-int vm_strcmp(const char* str1, const char* str2)
+int __forceinline vm_strcmp(const char* str1, const char* str2)
 {
     unsigned char c1;
     unsigned char c2;
@@ -494,16 +501,16 @@ void* GetProcAddress_Internal(HMODULE module, const char* proc_name)
                 uint32_t cur_index = (left_index + right_index) >> 1;
                 switch (vm_strcmp(proc_name, (const char*)(reinterpret_cast<uint8_t*>(module) + names[cur_index]))) 
                 {
-                case 0:
-                    ordinal_index = (reinterpret_cast<WORD*>(reinterpret_cast<uint8_t*>(module) + export_directory->AddressOfNameOrdinals))[cur_index];
-                    left_index = right_index + 1;
-                    break;
-                case -1:
-                    right_index = cur_index - 1;
-                    break;
-                case 1:
-                    left_index = cur_index + 1;
-                    break;
+                    case 0:
+                        ordinal_index = (reinterpret_cast<WORD*>(reinterpret_cast<uint8_t*>(module) + export_directory->AddressOfNameOrdinals))[cur_index];
+                        left_index = right_index + 1;
+                        break;
+                    case -1:
+                        right_index = cur_index - 1;
+                        break;
+                    case 1:
+                        left_index = cur_index + 1;
+                        break;
                 }
             }
         }
@@ -671,21 +678,23 @@ static HANDLE WINAPI OpenProcess_Internal(DWORD dwDesiredAccess, DWORD dwProcess
 }
 
 
-static __forceinline void init_syscall_buff(void* buff, DWORD sc_CTEx, DWORD sc_alloc, DWORD sc_ptm, DWORD sc_writemem, DWORD sc_querymem, DWORD sc_openproc)
+static __forceinline void init_syscall_buff(void* buff, void* Des, DWORD sc_CTEx, DWORD sc_alloc, DWORD sc_ptm, DWORD sc_writemem, DWORD sc_querymem, DWORD sc_openproc)
 {
     DWORD64 va = __rdtsc();
     va = ((va & 0xFFFF) * __rdtsc());
     va &= 0x1F0;
     BYTE* startaddr = (BYTE*)buff + va;
-    DWORD64 call = (DWORD64)(startaddr + 0xA0 + ((__rdtsc()>>16) & 0xF0));
-    *(DWORD64*)call = 0xC348050FD18B4C44;
+    BYTE* call = (startaddr + 0xC0 + ((__rdtsc() ^ va ) & 0xF0));
+    *(DWORD64*)call = 0x25FF4890D18B4C44;
+    *(DWORD*)(call + 0x8) = 0x4;
+    *(DWORD64*)(call + 0x10) = (DWORD64)Des;
     DWORD64 fir = 0x25FFFFFFFFFFB82E;
     DWORD sec = 0x4;
     for(int i = 0; i != 0x6; i++)
     {
         *(DWORD64*)(startaddr + (i * 0x20)) = fir;
         *(DWORD*)(startaddr + (i * 0x20) + 0x8) = sec;
-        *(DWORD64*)(startaddr + (i * 0x20) + 0x10) = call;
+        *(DWORD64*)(startaddr + (i * 0x20) + 0x10) = (DWORD64)call;
     }
     *(DWORD*)(startaddr + 0x2) = sc_CTEx;
     NtCreateThreadEx = (_NtCreateThreadEx_Win64)startaddr;
@@ -706,7 +715,7 @@ static __forceinline void init_syscall_buff(void* buff, DWORD sc_CTEx, DWORD sc_
     NtOpenProcess = (_NtOpenProcess_Win64)startaddr;
 }
 
-static NTSTATUS init_NTAPI()
+static __forceinline NTSTATUS init_NTAPI()
 {
     PEB64* peb = reinterpret_cast<PEB64*>(__readgsqword(0x60));
     PMODULE_TABLE_ENTRY list = peb->Ldr->InMemoryOrderModuleList.Flink->Next;//跳过第一个用户程序模块
@@ -750,7 +759,7 @@ static NTSTATUS init_NTAPI()
     if (!kernel32)
         return STATUS_DLL_NOT_FOUND;
 
-    //uint16_t OSver = ParseOSBuildBumber(ntdll);以peb版本为准
+    //OSver以peb版本为准
     WORD OSver = peb->OSBuildNumber;
     bool init_OSver = 0;
     DWORD sc_CreateThreadEx = 0;
@@ -951,9 +960,11 @@ static NTSTATUS init_NTAPI()
             sc_OpenProc = 0x23;
             init_OSver = 1;
         }
-        goto __init_Internalcall;
     }
-    if(1)
+    if(init_OSver)
+        goto __init_Internalcall;
+
+    else
     {
         char str_zct[24] = { 0 };
         writebyte(str_zct, (~'N'));
@@ -1127,8 +1138,65 @@ static NTSTATUS init_NTAPI()
 __init_Internalcall:
     if (init_OSver)
     {
+        char str_delay[32] = { 0 };
+        writebyte(str_delay, (~'N'));
+        writebyte(str_delay, (~'t'));
+        writebyte(str_delay, (~'D'));
+        writebyte(str_delay, (~'e'));
+        writebyte(str_delay, (~'l'));
+        writebyte(str_delay, (~'a'));
+        writebyte(str_delay, (~'y'));
+        writebyte(str_delay, (~'E'));
+        writebyte(str_delay, (~'x'));
+        writebyte(str_delay, (~'e'));
+        writebyte(str_delay, (~'c'));
+        writebyte(str_delay, (~'u'));
+        writebyte(str_delay, (~'t'));
+        writebyte(str_delay, (~'i'));
+        writebyte(str_delay, (~'o'));
+        writebyte(str_delay, (~'n'));
+        BYTE* Ntdelay = (BYTE*)GetProcAddress_Internal(ntdll, str_delay);
+        if (!Ntdelay)
+            return 0xDEADC0DE;
 
-        asm_initpsc(&sc_ProtectMem);
+        if (*(Ntdelay + 0x12) == 0x0F && *(Ntdelay + 0x13) == 0x05 && *(Ntdelay + 0x14) == 0xc3)
+        {
+            Ntdelay += 0x12;
+        }
+        else if (*(Ntdelay + 0x8) == 0x0F && *(Ntdelay + 0x9) == 0x05 && *(Ntdelay + 0xA) == 0xc3)
+        {
+            Ntdelay += 0x8;
+        }
+        else
+        {
+            return 0xDEADC0DE;
+        }
+
+        asm_initsc(sc_ProtectMem);
+        while(1)
+        {
+            DWORD64 randomVA = __rdtsc();
+            randomVA &= 0x7FF;
+            randomVA <<= 4;
+            randomVA += (DWORD64)Ntdelay;
+            if (*(BYTE*)randomVA == 0x0F && *(BYTE*)(randomVA + 1) == 0x05 && *(BYTE*)(randomVA + 2) == 0xc3)
+            {
+                asm_initaddr((void*)randomVA);
+                break;
+            }
+        }
+        while (1)
+        {
+            DWORD64 randomVA = __rdtsc();
+            randomVA &= 0x7FF;
+            randomVA <<= 4;
+            randomVA += (DWORD64)Ntdelay;
+            if (*(BYTE*)randomVA == 0x0F && *(BYTE*)(randomVA + 1) == 0x05 && *(BYTE*)(randomVA + 2) == 0xc3)
+            {
+                Ntdelay = (BYTE*)randomVA;
+                break;
+            }
+        }
 
         size_t i = 0x1000;
         DWORD old = 0;
@@ -1137,15 +1205,17 @@ __init_Internalcall:
         NTSTATUS ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)((HANDLE)-1, (void**)(&addr), &i, PAGE_EXECUTE_READWRITE, &old);
         if (!ret)
         {
-            init_syscall_buff((void*)(&buffer_call), sc_CreateThreadEx, sc_AllocMem, sc_ProtectMem, sc_WriteMem, sc_VirtualQuery, sc_OpenProc);
+            init_syscall_buff((void*)(&buffer_call), Ntdelay, sc_CreateThreadEx, sc_AllocMem, sc_ProtectMem, sc_WriteMem, sc_VirtualQuery, sc_OpenProc);
             ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)((HANDLE)-1, (void**)(&addr), &i, PAGE_EXECUTE_READ, &old);
         }
         if (ret)
         {
             return ret;
         }
-        asm_initpsc(0);
-
+    }
+    else
+    {
+        return 0xDEADC0DE;
     }
 
     RtlNtStatusToDosError = (_RtlNtStatusToDosError_Win64)GetProcAddress_Internal(ntdll, "RtlNtStatusToDosError");
@@ -1194,10 +1264,16 @@ __init_Internalcall:
     {
         return 0xF3;
     }
-
-    return ERROR_SUCCESS;
+    return 0;
 }
 
-
+static NTSTATUS init_API()
+{
+    if (init_Status)
+    {
+        init_Status = init_NTAPI();
+    }
+    return init_Status;
+}
 
 #endif

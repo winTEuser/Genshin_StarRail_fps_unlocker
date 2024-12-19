@@ -974,7 +974,6 @@ int main(/*int argc, char** argvA*/void)
 
     wprintf_s(L"FPS unlocker 2.8.4\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
 
-
     LPWSTR Command_arg = (LPWSTR)malloc(0x1000);
     if (!Command_arg)
     {
@@ -985,7 +984,12 @@ int main(/*int argc, char** argvA*/void)
     if (Init_Game_boot_arg(Command_arg) == 0)
         return 0; 
 
-    
+    if (NTSTATUS r = init_API())
+    {
+        printf_s("\nInit Error: 0x%X", r);
+        Show_Error_Msg(L"InitAPI failed!");
+        return r;
+    }
 
     if (LoadConfig() == 0)
         return 0;

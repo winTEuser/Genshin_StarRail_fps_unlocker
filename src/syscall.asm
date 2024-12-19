@@ -1,13 +1,13 @@
 
 
 .data
-	psc_number dq 0h
-	
+	sc_number dd 0h
+	sys_call_addr dq 0h
 	
 .code
-	asm_initpsc proc
-	    db 44h
-		mov psc_number, rcx
+	ALIGN 16
+	asm_initsc proc
+		mov sc_number, ecx
 		ret
 		int 3h
 		int 3h
@@ -16,26 +16,30 @@
 		int 3h
 		int 3h
 		int 3h
-	asm_initpsc endp
+		int 3h
+		int 3h
+	asm_initsc endp
+
+	asm_initaddr proc
+		db 44h
+		mov sys_call_addr, rcx
+		ret
+		int 3h
+		int 3h
+		int 3h
+		int 3h
+		int 3h
+		int 3h
+		int 3h
+	asm_initaddr endp
 
 	ALIGN 16
 	asm_syscall proc
-		mov rax, psc_number
-		test rax,rax
-		je err
-		mov eax, dword ptr [rax]
+		mov eax, sc_number
 		mov r10, rcx
 		db 48h
-		dd 0b8481F0Fh
-		syscall
-		cdqe
-		ret
+		jmp [sys_call_addr]
 		int 3h
-		int 3h
-
-	err:
-		mov eax, 0C0000005h
-		ret
 		int 3h
 	asm_syscall endp
 
