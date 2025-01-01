@@ -1,11 +1,8 @@
 # Genshin Impact & Honkai:StarRail の FPS Unlocker
 
-**Genshin now support ver 5.2** 
-**StarRail now support ver 2.7**
-
 [切换为简体中文](README_zh_cn.md)
 
- - **If need more function please download 34736384's unlocker.** [34736384's unlocker](https://github.com/34736384/genshin-fps-unlock)
+ - **This repo mod by 34736384's unlocker.** [34736384's unlocker](https://github.com/34736384/genshin-fps-unlock)
 
  - This tool helps you to unlock the 60 fps limit in the game
  - This is an external program which uses **WriteProcessMemory** to write the desired fps to the game
