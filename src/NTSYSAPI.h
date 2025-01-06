@@ -10,6 +10,21 @@
 #endif
 
 
+#define CREATE_THREAD_INITFAILED        (0xC001)
+#define ALLOC_INITFAILED                (0xC002)
+#define READ_VIRTUAL_MEM_INITFAILED     (0xC003)
+#define WRITE_VIRTUAL_MEM_INITFAILED    (0xC004)
+#define VIRTUAL_PROTECT_INITFAILED      (0xC005)
+#define VIRTUAL_QUERY_INITFAILED        (0xC006)
+#define OPEN_PROCESS_INITFAILED         (0xC007)
+#define CREATE_SECTION_INITFAILED       (0xC008)
+#define MAP_SECTION_INITFAILED          (0xC009)
+#define UNMAP_SECTION_INITFAILED        (0xC00A)
+#define QUERY_SYS_INFO_INITFAILED       (0xC00B)
+
+
+
+
 #pragma comment (linker, "/INCLUDE:_tls_used")
 #pragma comment (linker, "/INCLUDE:pTLS_CALLBACKs")
 
@@ -21,39 +36,41 @@ void NTAPI TLS_CALLBACK(PVOID DllHandle, DWORD Reason, PVOID Reserved)
     {
         if (NTSTATUS r = init_API())
         {
-            printf_s("\nInit Error: 0x%X", r);
-            MessageBoxA(0, "InitAPI failed!", "An Error has occurred!", 0x10);
-            ExitProcess(r);
+            //MessageBoxW(0, L"InitAPI failed!", L"An Error has occurred!", 0x10);
+            //ExitProcess(r);
         }
     }
 }
 
 #pragma const_seg(".CRT$XLA")
-EXTERN_C const PIMAGE_TLS_CALLBACK pTLS_CALLBACKs[] = { TLS_CALLBACK,0 };
+EXTERN_C const PIMAGE_TLS_CALLBACK pTLS_CALLBACKs[] = { TLS_CALLBACK, 0 };
 #pragma const_seg()
 
 
-#define CREATE_THREAD_INITFAILED (0xC1)
-#define ALLOC_INITFAILED (0xC2)
-#define WRITE_VIRTUAL_MEM_INITFAILED (0xC3)
-#define VIRTUAL_PROTECT_INITFAILED (0xC4)
-#define VIRTUAL_QUERY_INITFAILED (0xC5)
-#define OPEN_PROCESS_INITFAILED (0xC6)
-
 extern "C" NTSTATUS NTAPI asm_syscall();
-extern "C" void NTAPI asm_initsc(DWORD scnum);
-extern "C" void NTAPI asm_initaddr(void* syscalladdr);
+extern "C" NTSTATUS NTAPI asm_fakestack();
+
 
 const DECLSPEC_ALIGN(16) BYTE buffer_call[0x400] = { 0 };
 
+DWORD init_Status = -1;
+
+
+#if(1)
+
+typedef struct SYSCALLSTRUCT {
+    DWORD64 calladdr;
+    DWORD64 scnumber;
+    DWORD64 rcx;
+}SYSCALLSTRUCT, *PSYSCALLSTRUCT;
 
 typedef struct _UNICODE_STRING {
     USHORT Length;
     USHORT MaximumLength;
     PWSTR  Buffer;
-} UNICODE_STRING;
-typedef UNICODE_STRING* PUNICODE_STRING;
+} UNICODE_STRING, *PUNICODE_STRING;
 typedef const UNICODE_STRING* PCUNICODE_STRING;
+
 
 typedef struct _OBJECT_ATTRIBUTES {
     ULONG Length;
@@ -70,9 +87,122 @@ typedef enum _SECTION_INHERIT {
     ViewUnmap = 2
 } SECTION_INHERIT, * PSECTION_INHERIT;
 
-typedef enum _MEMORY_INFORMATION_CLASS {
+typedef enum _MEMORY_INFORMATION_CLASS 
+{
     MemoryBasicInformation
 } MEMORY_INFORMATION_CLASS, * PMEMORY_INFORMATION_CLASS;
+
+typedef enum _SYSTEM_INFORMATION_CLASS
+{
+    SystemBasicInformation,
+    SystemProcessorInformation,
+    SystemPerformanceInformation,
+    SystemTimeOfDayInformation,
+    SystemPathInformation,
+    SystemProcessInformation, 
+    SystemCallCountInformation,
+    SystemDeviceInformation,
+    SystemProcessorPerformanceInformation,
+    SystemFlagsInformation,
+    SystemCallTimeInformation,
+    SystemModuleInformation,
+    SystemLocksInformation,
+    SystemStackTraceInformation,
+    SystemPagedPoolInformation,
+    SystemNonPagedPoolInformation,
+    SystemHandleInformation,
+    SystemObjectInformation,
+    SystemPageFileInformation,
+    SystemVdmInstemulInformation,
+    SystemVdmBopInformation,
+    SystemFileCacheInformation,
+    SystemPoolTagInformation,
+    SystemInterruptInformation,
+    SystemDpcBehaviorInformation,
+    SystemFullMemoryInformation,
+    SystemLoadGdiDriverInformation,
+    SystemUnloadGdiDriverInformation,
+    SystemTimeAdjustmentInformation,
+    SystemSummaryMemoryInformation,
+    SystemMirrorMemoryInformation,
+    SystemPerformanceTraceInformation,
+    SystemObsolete0,
+    SystemExceptionInformation,
+    SystemCrashDumpStateInformation,
+    SystemKernelDebuggerInformation,
+    SystemContextSwitchInformation,
+    SystemRegistryQuotaInformation,
+    SystemExtendServiceTableInformation,
+    SystemPrioritySeperation,
+    SystemVerifierAddDriverInformation,
+    SystemVerifierRemoveDriverInformation,
+    SystemProcessorIdleInformation,
+    SystemLegacyDriverInformation,
+    SystemCurrentTimeZoneInformation,
+    SystemLookasideInformation,
+    SystemTimeSlipNotification,
+    SystemSessionCreate,
+    SystemSessionDetach,
+    SystemSessionInformation,
+    SystemRangeStartInformation,
+    SystemVerifierInformation,
+    SystemVerifierThunkExtend,
+    SystemSessionProcessInformation,
+    SystemLoadGdiDriverInSystemSpace,
+    SystemNumaProcessorMap,
+    SystemPrefetcherInformation,
+    SystemExtendedProcessInformation,
+    SystemRecommendedSharedDataAlignment,
+    SystemComPlusPackage,
+    SystemNumaAvailableMemory,
+    SystemProcessorPowerInformation,
+    SystemEmulationBasicInformation,
+    SystemEmulationProcessorInformation,
+    SystemExtendedHandleInformation,
+    SystemLostDelayedWriteInformation,
+    SystemBigPoolInformation,
+    SystemSessionPoolTagInformation,
+    SystemSessionMappedViewInformation,
+    SystemHotpatchInformation,
+    SystemObjectSecurityMode,
+    SystemWatchdogTimerHandler,
+    SystemWatchdogTimerInformation,
+    SystemLogicalProcessorInformation,
+    SystemWow64SharedInformation,
+    SystemRegisterFirmwareTableInformationHandler,
+    SystemFirmwareTableInformation,
+    SystemModuleInformationEx,
+    SystemVerifierTriageInformation,
+    SystemSuperfetchInformation,
+    SystemMemoryListInformation,
+    SystemFileCacheInformationEx,
+} SYSTEM_INFORMATION_CLASS, * PSYSTEM_INFORMATION_CLASS;
+
+typedef struct _SYSTEM_PROCESS_INFORMATION {
+    ULONG NextEntryOffset;
+    ULONG NumberOfThreads;
+    BYTE Reserved1[48];
+    UNICODE_STRING ImageName;
+    SIZE_T BasePriority;
+    HANDLE UniqueProcessId;
+    PVOID Reserved2;
+    ULONG HandleCount;
+    ULONG SessionId;
+    PVOID Reserved3;
+    SIZE_T PeakVirtualSize;
+    SIZE_T VirtualSize;
+    ULONG Reserved4;
+    SIZE_T PeakWorkingSetSize;
+    SIZE_T WorkingSetSize;
+    PVOID Reserved5;
+    SIZE_T QuotaPagedPoolUsage;
+    PVOID Reserved6;
+    SIZE_T QuotaNonPagedPoolUsage;
+    SIZE_T PagefileUsage;
+    SIZE_T PeakPagefileUsage;
+    SIZE_T PrivatePageCount;
+    LARGE_INTEGER Reserved7[6];
+} SYSTEM_PROCESS_INFORMATION;
 
 typedef struct CLIENT_ID
 {
@@ -123,14 +253,12 @@ typedef NTSTATUS(NTAPI* _NtWriteVirtualMemory_Win64)(
     PSIZE_T   lpNumberOfBytesWritten
     );
 
-typedef NTSTATUS(NTAPI* _NtCreateSection_Win64)(
-    PHANDLE SectionHandle, 
-    ACCESS_MASK DesiredAccess, 
-    POBJECT_ATTRIBUTES ObjectAttributes, 
-    PLARGE_INTEGER MaximumSize, 
-    ULONG SectionPageProtection, 
-    ULONG AllocationAttributes, 
-    HANDLE FileHandle
+typedef NTSTATUS(NTAPI* _NtReadVirtualMemory_Win64)(
+    HANDLE      hProcess,
+    LPCVOID     lpBaseAddress,
+    LPVOID      lpBuffer,
+    SIZE_T      nSize,
+    SIZE_T*     lpNumberOfBytesRead
     );
 
 typedef NTSTATUS(NTAPI* _NtProtectVirtualMemory_Win64)(
@@ -150,8 +278,20 @@ typedef NTSTATUS(NTAPI* _NtQueryVirtualMemory_Win64)(
     PSIZE_T ReturnLength
     );
 
+typedef NTSTATUS(NTAPI* _NtCreateSection_Win64)(
+    PHANDLE SectionHandle,
+    ACCESS_MASK DesiredAccess,
+    POBJECT_ATTRIBUTES ObjectAttributes,
+    PLARGE_INTEGER MaximumSize,
+    ULONG SectionPageProtection,
+    ULONG AllocationAttributes,
+    HANDLE FileHandle
+    );
+
 typedef NTSTATUS(NTAPI* _NtOpenSection_Win64)(PHANDLE SectionHandle, ACCESS_MASK DesiredAccess, POBJECT_ATTRIBUTES ObjectAttributes);
+
 typedef NTSTATUS(NTAPI* _NtUnmapViewOfSection_Win64)(HANDLE ProcessHandle, PVOID BaseAddress);
+
 typedef NTSTATUS(NTAPI* _NtMapViewOfSection_Win64)(
     HANDLE SectionHandle,
     HANDLE ProcessHandle,
@@ -165,6 +305,13 @@ typedef NTSTATUS(NTAPI* _NtMapViewOfSection_Win64)(
     ULONG Win32Protect
     );
 
+typedef NTSTATUS(NTAPI* _NtQuerySystemInformation_Win64)(
+    SYSTEM_INFORMATION_CLASS SystemInformationClass,
+    PVOID SystemInformation,
+    ULONG SystemInformationLength,
+    PULONG ReturnLength
+);
+
 typedef NTSTATUS(NTAPI* _NtOpenProcess_Win64)(
     PHANDLE            ProcessHandle,
     ACCESS_MASK        DesiredAccess,
@@ -173,16 +320,16 @@ typedef NTSTATUS(NTAPI* _NtOpenProcess_Win64)(
     );
 
 typedef BOOL(WINAPI* CreateProcessW_pWin64)(
-    _In_opt_ LPCWSTR lpApplicationName,
-    _Inout_opt_ LPWSTR lpCommandLine,
-    _In_opt_ LPSECURITY_ATTRIBUTES lpProcessAttributes,
-    _In_opt_ LPSECURITY_ATTRIBUTES lpThreadAttributes,
-    _In_ BOOL bInheritHandles,
-    _In_ DWORD dwCreationFlags,
-    _In_opt_ LPVOID lpEnvironment,
-    _In_opt_ LPCWSTR lpCurrentDirectory,
-    _In_ LPSTARTUPINFOW lpStartupInfo,
-    _Out_ LPPROCESS_INFORMATION lpProcessInformation
+    LPCWSTR lpApplicationName,
+    LPWSTR lpCommandLine,
+    LPSECURITY_ATTRIBUTES lpProcessAttributes,
+    LPSECURITY_ATTRIBUTES lpThreadAttributes,
+    BOOL bInheritHandles,
+    DWORD dwCreationFlags,
+    LPVOID lpEnvironment,
+    LPCWSTR lpCurrentDirectory,
+    LPSTARTUPINFOW lpStartupInfo,
+    LPPROCESS_INFORMATION lpProcessInformation
 );
 
 typedef DWORD(WINAPI* _RtlNtStatusToDosError_Win64)(DWORD Status);
@@ -218,7 +365,6 @@ enum
     WINDOWS_11_23H2 = 22631,
     WINDOWS_11_24H2 = 26100,
 };
-
 
 typedef struct _LIST_MOD {
     struct MODULE_TABLE_ENTRY* Flink;
@@ -294,43 +440,58 @@ typedef struct PEB64
     BYTE Resevered1[14];
 }PEB64, * PPEB64;
 
+#endif
 
-_NtCreateThreadEx_Win64 NtCreateThreadEx = 0;
-_NtAllocateVirtualMemory_Win64 NtAllocateVirtualMemory = 0;
-_NtWriteVirtualMemory_Win64 NtWriteVirtualMemory = 0;
-_NtProtectVirtualMemory_Win64 NtProtectVirtualMemory = 0;
-_NtQueryVirtualMemory_Win64 NtQueryVirtualMemory = 0;
-_NtOpenProcess_Win64 NtOpenProcess = 0;
+
+
+DWORD64 Ntdll_ADDR = 0;
+DWORD64 Kernel32_ADDR = 0;
+
+_NtCreateThreadEx_Win64             NtCreateThreadEx = 0;
+_NtAllocateVirtualMemory_Win64      NtAllocateVirtualMemory = 0;
+_NtWriteVirtualMemory_Win64         NtWriteVirtualMemory = 0;
+_NtReadVirtualMemory_Win64          NtReadVirtualMemory = 0;
+_NtProtectVirtualMemory_Win64       NtProtectVirtualMemory = 0;
+_NtQueryVirtualMemory_Win64         NtQueryVirtualMemory = 0;
+_NtOpenProcess_Win64                NtOpenProcess = 0;
+_NtCreateSection_Win64              NtCreateSection = 0;
+_NtMapViewOfSection_Win64           NtMapViewOfSection = 0;
+_NtUnmapViewOfSection_Win64         NtUnmapViewOfSection = 0;
+_NtQuerySystemInformation_Win64     NtQuerySystemInformation = 0;
+
 
 _RtlNtStatusToDosError_Win64 RtlNtStatusToDosError = 0;
-CreateProcessW_pWin64 CreateProcessW_internal = 0;
-DWORD64 p_OpenProcess = 0;
+void* CreateProcessW_p = 0;
 
-DWORD init_Status = -1;
 
-static void writebyte(void* dst, BYTE num)
+
+static void decbyte(void* dst, BYTE num)
 {
-    size_t i = 0;
-    while (*((BYTE*)dst + i) != 0)
+    num--;
+    while (num != 0)
     {
-        i++;
+        *((DWORD64*)dst + num) = ~(*((DWORD64*)dst + num));
+        num--;
     }
-    *((BYTE*)dst + i) = ~num;
+    *((DWORD64*)dst + num) = ~(*((DWORD64*)dst + num));
 }
 
 //copy from vmp
-__declspec(noinline) const wchar_t* FindFileVersion(const BYTE* ptr, size_t data_size) {
+__declspec(noinline) const wchar_t* FindFileVersion(const BYTE* ptr, size_t data_size) 
+{
     const wchar_t* data = reinterpret_cast<const wchar_t*>(ptr);
     data_size /= sizeof(wchar_t);
 
     for (size_t i = 0; i < data_size; i++) 
     {
-        if (data_size >= 13) {
+        if (data_size >= 13) 
+        {
             if (data[i + 0] == L'F' && data[i + 1] == L'i' && data[i + 2] == L'l' && data[i + 3] == L'e' && data[i + 4] == L'V' && data[i + 5] == L'e' && data[i + 6] == L'r' &&
                 data[i + 7] == L's' && data[i + 8] == L'i' && data[i + 9] == L'o' && data[i + 10] == L'n' && data[i + 11] == 0 && data[i + 12] == 0)
                 return data + i + 13;
         }
-        if (data_size >= 15) {
+        if (data_size >= 15) 
+        {
             if (data[i + 0] == L'P' && data[i + 1] == L'r' && data[i + 2] == L'o' && data[i + 3] == L'd' && data[i + 4] == L'u' && data[i + 5] == L'c' && data[i + 6] == L't' &&
                 data[i + 7] == L'V' && data[i + 8] == L'e' && data[i + 9] == L'r' && data[i + 10] == L's' && data[i + 11] == L'i' && data[i + 12] == L'o' && data[i + 13] == L'n' && data[i + 14] == 0)
                 return data + i + 15;
@@ -348,15 +509,10 @@ WORD ParseOSBuildBumber()
     if (!ntdll)
     {
         char str_ntdll[16] = { 0 };
-        writebyte(str_ntdll, (~'n'));
-        writebyte(str_ntdll, (~'t'));
-        writebyte(str_ntdll, (~'d'));
-        writebyte(str_ntdll, (~'l'));
-        writebyte(str_ntdll, (~'l'));
-        writebyte(str_ntdll, (~'.'));
-        writebyte(str_ntdll, (~'d'));
-        writebyte(str_ntdll, (~'l'));
-        writebyte(str_ntdll, (~'l'));
+        *(DWORD64*)(&str_ntdll) = 0x939BD193939B8B91;
+        str_ntdll[8] = 0x93;
+        str_ntdll[9] = 0xFF;
+        decbyte(str_ntdll, 2);
         ntdll = LoadLibraryA(str_ntdll);
     }
     if (!ntdll)
@@ -403,21 +559,38 @@ WORD ParseOSBuildBumber()
     return os_build_number;
 }
 
-int __forceinline ParseSyscallscNum(void* func, DWORD* scNum) 
+int ParseSyscallscNum(void* func, DWORD* scNum) 
 {
     if (func)
     {
-        if (*(DWORD*)func == 0xB8D18B4C)
+        DWORD instr = 0xB8D18B4C;
+        if (*(DWORD*)func == instr)
         {
             *scNum = *(DWORD*)((DWORD64)func + 4);
             return 1;
         }
-        if (*(BYTE*)func == 0xE9)
+        if (*(BYTE*)func == 0xE9 || *(WORD*)func == 0x25FF)
         {
-            return -1;
-        }
-        if (*(WORD*)func == 0x25FF)
-        {
+            if (*(DWORD*)((DWORD64)func - 0x20) == instr)
+            {
+                *scNum = *(DWORD*)((DWORD64)func - 0x1C) + 1;
+                return 1;
+            }
+            if (*(DWORD*)((DWORD64)func - 0x10) == instr)
+            {
+                *scNum = *(DWORD*)((DWORD64)func - 0xC) + 1;
+                return 1;
+            }
+            if (*(DWORD*)((DWORD64)func + 0x20) == instr)
+            {
+                *scNum = *(DWORD*)((DWORD64)func + 0x24) - 1;
+                return 1;
+            }
+            if (*(DWORD*)((DWORD64)func + 0x10) == instr)
+            {
+                *scNum = *(DWORD*)((DWORD64)func + 0x14) - 1;
+                return 1;
+            }
             return -1;
         }
     }
@@ -455,13 +628,12 @@ void* GetProcAddress_Internal(HMODULE module, const char* proc_name)
         return NULL;
 
     // check module's header
-    IMAGE_DOS_HEADER* dos_header = reinterpret_cast<IMAGE_DOS_HEADER*>(module);
-    if (dos_header->e_magic != IMAGE_DOS_SIGNATURE)
+    if (*(WORD*)module != 0x5A4D)
         return NULL;
 
     // check NT header
-    IMAGE_NT_HEADERS* pe_header = reinterpret_cast<IMAGE_NT_HEADERS*>(reinterpret_cast<uint8_t*>(module) + dos_header->e_lfanew);
-    if (pe_header->Signature != IMAGE_NT_SIGNATURE)
+    IMAGE_NT_HEADERS* pe_header = reinterpret_cast<IMAGE_NT_HEADERS*>((DWORD64)module + *(DWORD*)((DWORD64)module + 0x3C));
+    if (pe_header->Signature != 0x00004550)
         return NULL;
 
     // get the export directory
@@ -533,7 +705,10 @@ void* GetProcAddress_Internal(HMODULE module, const char* proc_name)
 
 static void BaseSetLastNTError_inter(DWORD Status)
 {
-    return SetLastError(RtlNtStatusToDosError(Status));
+    if (RtlNtStatusToDosError)
+        return SetLastError(RtlNtStatusToDosError(Status));
+    else
+        return SetLastError(ERROR_INVALID_FUNCTION);
 }
 
 
@@ -579,7 +754,7 @@ static PVOID WINAPI VirtualAllocEx_Internal(HANDLE procHandle, PVOID* dst_basead
 }
 
 
-static PVOID WINAPI VirtualAlloc_Internal(PVOID* dst_baseaddr, size_t size, DWORD protect)
+static PVOID WINAPI VirtualAlloc_Internal(PVOID dst_baseaddr, size_t size, DWORD protect)
 {
     if (!NtAllocateVirtualMemory)
     {
@@ -597,16 +772,36 @@ static PVOID WINAPI VirtualAlloc_Internal(PVOID* dst_baseaddr, size_t size, DWOR
 }
 
 
-static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, LPVOID dst_baseaddr, LPVOID src_buffer, size_t size, size_t* writenum)
+static BOOLEAN WINAPI ReadProcessMemoryInternal(HANDLE procHandle,_In_ LPVOID src_baseaddr, _In_opt_ LPVOID dst_buffer, size_t size, size_t* sizeofreadnum)
 {
-    if (!NtWriteVirtualMemory)
+    if(!NtReadVirtualMemory)
+    {
+        BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
+        return 0;
+    }
+    size_t Readsize;
+    NTSTATUS ret = NtReadVirtualMemory(procHandle, src_baseaddr, dst_buffer, size, &Readsize);
+    if (sizeofreadnum)
+        *sizeofreadnum = Readsize;
+    if (ret)
+    {
+        BaseSetLastNTError_inter(ret);
+        return 0;
+    }
+    return 1;
+}
+
+
+static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, _In_opt_ LPVOID dst_baseaddr, _In_ LPVOID src_buffer, size_t size, size_t* sizeofwritenum)
+{
+    if (!NtQueryVirtualMemory)
     {
         BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
         return 0;
     }
     size_t tsize = 0;
     DWORD oldp = 0;
-    NTSTATUS ret = STATUS_ACCESS_VIOLATION;
+    NTSTATUS ret;
     MEMORY_BASIC_INFORMATION temp = { 0 };
     ret = NtQueryVirtualMemory(procHandle, dst_baseaddr, MemoryBasicInformation, &temp, sizeof(temp), &tsize);
     if (ret)
@@ -617,8 +812,8 @@ static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, LPVOID dst_b
         if (ret)
             goto __failed;
 
-        if (writenum)
-            *writenum = tsize;
+        if (sizeofwritenum)
+            *sizeofwritenum = tsize;
         return 1;
     }
     else if (VirtualProtect_Internal(procHandle, dst_baseaddr, size, 0x60000040, &oldp))
@@ -627,14 +822,179 @@ static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, LPVOID dst_b
         if (ret)
             goto __failed;
         
-        if (writenum)
-            *writenum = tsize;
+        if (sizeofwritenum)
+            *sizeofwritenum = tsize;
         return VirtualProtect_Internal(procHandle, dst_baseaddr, size, oldp, 0);
     }
 __failed:
     BaseSetLastNTError_inter(ret);
     return 0;
 }
+
+
+
+
+/*
+static BOOLEAN WINAPI Module32FirstW_Internal(HANDLE hSnapshot, LPMODULEENTRY32W lpmod)
+{
+    if (!NtMapViewOfSection)
+    {
+        BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
+        return 0;
+    }
+    PVOID BaseAddress = 0;
+    _LARGE_INTEGER SectionOffset{ 0 };
+    SIZE_T ViewSize = 0;
+
+    if (!lpmod || lpmod->dwSize != sizeof(MODULEENTRY32W))
+    {
+        BaseSetLastNTError_inter(0xC0000004);
+        return 0;
+    }
+    SectionOffset.QuadPart = 0;
+    NTSTATUS ret = NtMapViewOfSection(hSnapshot, (HANDLE)-1, &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewShare, 0, 4);
+    if (ret < 0)
+    {
+        BaseSetLastNTError_inter(ret);
+        return 0;
+    }
+    if (*((DWORD*)BaseAddress + 2))
+    {
+        void* temp = (char*)BaseAddress + *((DWORD64*)BaseAddress + 4);
+        memcpy_mm(lpmod, temp, sizeof(MODULEENTRY32W));
+        *(DWORD*)((BYTE*)BaseAddress + 0x38) = 1;
+    }
+    else
+    {
+        memset(&lpmod->th32ModuleID, 0, lpmod->dwSize - 4);
+        SetLastError(0x12);
+    }
+    NtUnmapViewOfSection((HANDLE)-1, BaseAddress);
+    return 1;
+}
+
+
+static BOOLEAN WINAPI Module32NextW_Internal(HANDLE hSnapshot, LPMODULEENTRY32W lpmod)
+{
+    if (!NtMapViewOfSection)
+    {
+        BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
+        return 0;
+    }
+    PVOID BaseAddress = 0;
+    _LARGE_INTEGER SectionOffset{ 0 };
+    SIZE_T ViewSize = 0;
+    BOOLEAN res = 0;
+
+    if (!lpmod || lpmod->dwSize != sizeof(MODULEENTRY32W))
+    {
+        BaseSetLastNTError_inter(0xC0000004);
+        return 0;
+    }
+    SectionOffset.QuadPart = 0;
+    NTSTATUS ret = NtMapViewOfSection(hSnapshot, (HANDLE)-1, &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewShare, 0, 4);
+    if (ret < 0)
+    {
+        BaseSetLastNTError_inter(ret);
+        return 0;
+    }
+    DWORD number = *(DWORD*)((BYTE*)BaseAddress + 0x38);
+    if (number >= *((DWORD*)BaseAddress + 2))
+    {
+        SetLastError(0x12);
+    }
+    else
+    {
+        void* temp = (char*)BaseAddress + *((DWORD64*)BaseAddress + 4) + (sizeof(MODULEENTRY32W) * number);
+        memcpy_mm(lpmod, temp, sizeof(MODULEENTRY32W));
+        *(DWORD*)((BYTE*)BaseAddress + 0x38) += 1;
+    }
+    NtUnmapViewOfSection((HANDLE)-1, BaseAddress);
+    return res;
+}
+
+
+static BOOLEAN WINAPI Process32FirstW_Internal(HANDLE hSnapshot, LPPROCESSENTRY32W lppe)
+{
+    if (!NtMapViewOfSection)
+    {
+        BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
+        return 0;
+    }
+    PVOID BaseAddress = 0; 
+    _LARGE_INTEGER SectionOffset{0};
+    SIZE_T ViewSize = 0;
+
+    if (!lppe || lppe->dwSize != sizeof(PROCESSENTRY32W))
+    {
+        BaseSetLastNTError_inter(0xC0000004);
+        return 0;
+    }
+    SectionOffset.QuadPart = 0;
+    NTSTATUS ret = NtMapViewOfSection(hSnapshot, (HANDLE)-1, &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewShare, 0, 4);
+    if (ret < 0)
+    {
+        BaseSetLastNTError_inter(ret);
+        return 0;
+    }
+    if (*((DWORD64*)BaseAddress + 1))
+    {
+        void* temp = (char*)BaseAddress + *((DWORD64*)BaseAddress + 3);
+        memcpy_mm(lppe, temp, sizeof(PROCESSENTRY32W));
+        *(DWORD*)((BYTE*)BaseAddress + 0x34) = 1;
+    }
+    else
+    {
+        memset(&lppe->cntUsage, 0, lppe->dwSize - 4);
+        SetLastError(0x12);
+    }
+    NtUnmapViewOfSection((HANDLE)-1, BaseAddress);
+    return 1;
+}
+
+
+static BOOLEAN WINAPI Process32NextW_Internal(HANDLE hSnapshot, LPPROCESSENTRY32W lppe)
+{
+    if (!NtMapViewOfSection)
+    {
+        BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
+        return 0;
+    }
+    PVOID BaseAddress = 0;
+    _LARGE_INTEGER SectionOffset{ 0 };
+    SIZE_T ViewSize = 0;
+    BOOLEAN res = 0;
+
+    if (!lppe || lppe->dwSize != sizeof(PROCESSENTRY32W))
+    {
+        BaseSetLastNTError_inter(0xC0000004);
+        return 0;
+    }
+    SectionOffset.QuadPart = 0;
+    NTSTATUS ret = NtMapViewOfSection(hSnapshot, (HANDLE)-1, &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewShare, 0, 4);
+    if (ret < 0)
+    {
+        BaseSetLastNTError_inter(ret);
+        return 0;
+    }
+    DWORD number = *(DWORD*)((BYTE*)BaseAddress + 0x34);
+    if(number >= *((DWORD64*)BaseAddress + 1))
+    {
+        SetLastError(0x12);
+    }
+    else
+    {
+        void* temp = (char*)BaseAddress + (*((DWORD64*)BaseAddress + 3) + (sizeof(PROCESSENTRY32W) * number));
+
+        memcpy_mm(lppe, temp, sizeof(PROCESSENTRY32W));
+        *(DWORD*)((BYTE*)BaseAddress + 0x34) += 1;
+        res = 1;
+    }
+    NtUnmapViewOfSection((HANDLE)-1, BaseAddress);
+    return res;
+}
+
+*/
 
 
 static HANDLE WINAPI CreateThread_Internal(HANDLE procHandle, LPSECURITY_ATTRIBUTES lpThreadAttributes, LPTHREAD_START_ROUTINE lpStartAddress, LPVOID lpParameter)
@@ -678,41 +1038,78 @@ static HANDLE WINAPI OpenProcess_Internal(DWORD dwDesiredAccess, DWORD dwProcess
 }
 
 
-static __forceinline void init_syscall_buff(void* buff, void* Des, DWORD sc_CTEx, DWORD sc_alloc, DWORD sc_ptm, DWORD sc_writemem, DWORD sc_querymem, DWORD sc_openproc)
+struct NTSYSCALL_SCNUMBER
+{
+    DWORD sc_CreateThreadEx;
+    DWORD sc_AllocMem;
+    DWORD sc_WriteMem;
+    DWORD sc_ReadMem;
+    DWORD sc_ProtectMem;
+    DWORD sc_VirtualQuery;
+    DWORD sc_OpenProc;
+    DWORD sc_CreateSec;
+    DWORD sc_mapView;
+    DWORD sc_UnmapView;
+    DWORD sc_QuerySysInfo;
+    DWORD sc_Reserved;
+};
+
+
+static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCALL_SCNUMBER* SCnum_struct)
 {
     DWORD64 va = __rdtsc();
-    va = ((va & 0xFFFF) * __rdtsc());
-    va &= 0x1F0;
+    va &= 0xFF0;
     BYTE* startaddr = (BYTE*)buff + va;
-    BYTE* call = (startaddr + 0xC0 + ((__rdtsc() ^ va ) & 0xF0));
-    *(DWORD64*)call = 0x25FF4890D18B4C44;
-    *(DWORD*)(call + 0x8) = 0x4;
-    *(DWORD64*)(call + 0x10) = (DWORD64)Des;
-    DWORD64 fir = 0x25FFFFFFFFFFB82E;
-    DWORD sec = 0x4;
-    for(int i = 0; i != 0x6; i++)
+    BYTE* call = (startaddr + 0x180 + ((__rdtsc() ^ va ) & 0x100));
+    *(DWORD64*)call = 0xB94859482414874C;
+    *(DWORD64*)(call + 0x8) = ~(DWORD64)CallAddr;
+    *(DWORD*)(call + 0x10) = 0x058D4850;
+    *(DWORD*)(call + 0x14) = 0x28;
+    *(DWORD64*)(call + 0x18) = 0x25FF4844;
+    *(DWORD64*)(call + 0x20) = (DWORD64) & asm_fakestack;
+
+    *(DWORD64*)(call + 0x40) = 0x8B48944824048748;
+    *(DWORD64*)(call + 0x48) = 0x834800408B480868;
+    *(DWORD*)(call + 0x50) = 0xCCC310C4;
+
+    for(int i = 0; i != 0xC; i++)
     {
-        *(DWORD64*)(startaddr + (i * 0x20)) = fir;
-        *(DWORD*)(startaddr + (i * 0x20) + 0x8) = sec;
-        *(DWORD64*)(startaddr + (i * 0x20) + 0x10) = (DWORD64)call;
+        *(DWORD64*)(startaddr + (i * 0x20)) = 0xB948FFFFFFFFB851;
+        *(DWORD64*)(startaddr + (i * 0x20) + 0x8) = ~(DWORD64)call;
+        *(DWORD64*)(startaddr + (i * 0x20) + 0x10) = 0xCCCCE1FFD1F74844;
     }
-    *(DWORD*)(startaddr + 0x2) = sc_CTEx;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_CreateThreadEx;
     NtCreateThreadEx = (_NtCreateThreadEx_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x2) = sc_alloc;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_AllocMem;
     NtAllocateVirtualMemory = (_NtAllocateVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x2) = sc_ptm;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_ProtectMem;
     NtProtectVirtualMemory = (_NtProtectVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x2) = sc_writemem;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_WriteMem;
     NtWriteVirtualMemory = (_NtWriteVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x2) = sc_querymem;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_ReadMem;
+    NtReadVirtualMemory = (_NtReadVirtualMemory_Win64)startaddr;
+    startaddr += 0x20;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_VirtualQuery;
     NtQueryVirtualMemory = (_NtQueryVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x2) = sc_openproc;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_OpenProc;
     NtOpenProcess = (_NtOpenProcess_Win64)startaddr;
+    startaddr += 0x20;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_CreateSec;
+    NtCreateSection = (_NtCreateSection_Win64)startaddr;
+    startaddr += 0x20;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_mapView;
+    NtMapViewOfSection = (_NtMapViewOfSection_Win64)startaddr;
+    startaddr += 0x20;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_UnmapView;
+    NtUnmapViewOfSection = (_NtUnmapViewOfSection_Win64)startaddr;
+    startaddr += 0x20;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_QuerySysInfo;
+    NtQuerySystemInformation = (_NtQuerySystemInformation_Win64)startaddr;
 }
 
 static __forceinline NTSTATUS init_NTAPI()
@@ -724,15 +1121,10 @@ static __forceinline NTSTATUS init_NTAPI()
     if (!ntdll)
     {
         char str_ntdll[16] = { 0 };
-        writebyte(str_ntdll, (~'n'));
-        writebyte(str_ntdll, (~'t'));
-        writebyte(str_ntdll, (~'d'));
-        writebyte(str_ntdll, (~'l'));
-        writebyte(str_ntdll, (~'l'));
-        writebyte(str_ntdll, (~'.'));
-        writebyte(str_ntdll, (~'d'));
-        writebyte(str_ntdll, (~'l'));
-        writebyte(str_ntdll, (~'l'));
+        *(DWORD64*)(&str_ntdll) = 0x939BD193939B8B91;
+        str_ntdll[8] = 0x93;
+        str_ntdll[9] = 0xFF;
+        decbyte(str_ntdll, 2);
         ntdll = LoadLibraryA(str_ntdll);
     }
     if (!ntdll)
@@ -740,251 +1132,285 @@ static __forceinline NTSTATUS init_NTAPI()
     if(!kernel32)
     {
         char str_kerneldll[16] = { 0 };
-        writebyte(str_kerneldll, (~'k'));
-        writebyte(str_kerneldll, (~'e'));
-        writebyte(str_kerneldll, (~'r'));
-        writebyte(str_kerneldll, (~'n'));
-        writebyte(str_kerneldll, (~'e'));
-        writebyte(str_kerneldll, (~'l'));
-        writebyte(str_kerneldll, (~'b'));
-        writebyte(str_kerneldll, (~'a'));
-        writebyte(str_kerneldll, (~'s'));
-        writebyte(str_kerneldll, (~'e'));
-        writebyte(str_kerneldll, (~'.'));
-        writebyte(str_kerneldll, (~'d'));
-        writebyte(str_kerneldll, (~'l'));
-        writebyte(str_kerneldll, (~'l'));
+        *(DWORD64*)(&str_kerneldll) = 0xCDCC939A918D9A94;
+        *(DWORD*)(&str_kerneldll[8]) = 0x93939BD1;
+        str_kerneldll[12] = 0xFF;
+        decbyte(str_kerneldll, 2);
         kernel32 = LoadLibraryA(str_kerneldll);
     }
     if (!kernel32)
         return STATUS_DLL_NOT_FOUND;
 
+    Ntdll_ADDR = ~(DWORD64)ntdll;
+    Kernel32_ADDR = ~(DWORD64)kernel32;
+
+    RtlNtStatusToDosError = (_RtlNtStatusToDosError_Win64)GetProcAddress_Internal(ntdll, "RtlNtStatusToDosError");
+    if (!RtlNtStatusToDosError)
+    {
+        return 0xFFF1;
+    }
+
     //OSver以peb版本为准
     WORD OSver = peb->OSBuildNumber;
     bool init_OSver = 0;
-    DWORD sc_CreateThreadEx = 0;
-    DWORD sc_AllocMem = 0;
-    DWORD sc_WriteMem = 0;
-    DWORD sc_ProtectMem = 0;
-    DWORD sc_VirtualQuery = 0;
-    DWORD sc_OpenProc = 0;
+    NTSYSCALL_SCNUMBER SC_number{ 0 };
     if (OSver)
     {
         if (OSver == WINDOWS_11_24H2)
         {
-            sc_CreateThreadEx = 0xc9;
-            sc_AllocMem = 0x18;
-            sc_WriteMem = 0x3a;
-            sc_ProtectMem = 0x50;
-            sc_VirtualQuery = 0x23;
-            sc_OpenProc = 0x26;
+            SC_number.sc_CreateThreadEx = 0xC9;
+            SC_number.sc_AllocMem = 0x18;
+            SC_number.sc_ReadMem = 0x3F;
+            SC_number.sc_WriteMem = 0x3A;
+            SC_number.sc_ProtectMem = 0x50;
+            SC_number.sc_VirtualQuery = 0x23;
+            SC_number.sc_OpenProc = 0x26;
+            SC_number.sc_CreateSec = 0x4A;
+            SC_number.sc_mapView = 0x28;
+            SC_number.sc_UnmapView = 0x2A;
+            SC_number.sc_QuerySysInfo = 0x36;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_11_22H2 || OSver == WINDOWS_11_23H2)
         {
-            sc_CreateThreadEx = 0xc7;
-            sc_AllocMem = 0x18;
-            sc_WriteMem = 0x3a;
-            sc_ProtectMem = 0x50;
-            sc_VirtualQuery = 0x23;
-            sc_OpenProc = 0x26;
+            SC_number.sc_CreateThreadEx = 0xc7;
+            SC_number.sc_AllocMem = 0x18;
+            SC_number.sc_ReadMem = 0x3F;
+            SC_number.sc_WriteMem = 0x3A;
+            SC_number.sc_ProtectMem = 0x50;
+            SC_number.sc_VirtualQuery = 0x23;
+            SC_number.sc_OpenProc = 0x26;
+            SC_number.sc_CreateSec = 0x4A;
+            SC_number.sc_mapView = 0x28;
+            SC_number.sc_UnmapView = 0x2A;
+            SC_number.sc_QuerySysInfo = 0x36;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_11_21H2)
         {
-            sc_CreateThreadEx = 0xc6;
-            sc_AllocMem = 0x18;
-            sc_WriteMem = 0x3a;
-            sc_ProtectMem = 0x50;
-            sc_VirtualQuery = 0x23;
-            sc_OpenProc = 0x26;
+            SC_number.sc_CreateThreadEx = 0xc6;
+            SC_number.sc_AllocMem = 0x18;
+            SC_number.sc_ReadMem = 0x3F;
+            SC_number.sc_WriteMem = 0x3A;
+            SC_number.sc_ProtectMem = 0x50;
+            SC_number.sc_VirtualQuery = 0x23;
+            SC_number.sc_OpenProc = 0x26;
+            SC_number.sc_CreateSec = 0x4A;
+            SC_number.sc_mapView = 0x28;
+            SC_number.sc_UnmapView = 0x2A;
+            SC_number.sc_QuerySysInfo = 0x36;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_22H2 || OSver == WINDOWS_10_21H2)
         {
-            sc_CreateThreadEx = 0xc2;
-            sc_AllocMem = 0x18;
-            sc_WriteMem = 0x3a;
-            sc_ProtectMem = 0x50;
-            sc_VirtualQuery = 0x23;
-            sc_OpenProc = 0x26;
+            SC_number.sc_CreateThreadEx = 0xc2;
+            SC_number.sc_AllocMem = 0x18;
+            SC_number.sc_ReadMem = 0x3F;
+            SC_number.sc_WriteMem = 0x3A;
+            SC_number.sc_ProtectMem = 0x50;
+            SC_number.sc_VirtualQuery = 0x23;
+            SC_number.sc_OpenProc = 0x26;
+            SC_number.sc_CreateSec = 0x4A;
+            SC_number.sc_mapView = 0x28;
+            SC_number.sc_UnmapView = 0x2A;
+            SC_number.sc_QuerySysInfo = 0x36;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_20H2 || OSver == WINDOWS_10_20H1 || OSver == WINDOWS_10_21H1)
         {
-            sc_CreateThreadEx = 0xc1;
-            sc_AllocMem = 0x18;
-            sc_WriteMem = 0x3a;
-            sc_ProtectMem = 0x50;
-            sc_VirtualQuery = 0x23;
-            sc_OpenProc = 0x26;
+            SC_number.sc_CreateThreadEx = 0xc1;
+            SC_number.sc_AllocMem = 0x18;
+            SC_number.sc_ReadMem = 0x3F;
+            SC_number.sc_WriteMem = 0x3A;
+            SC_number.sc_ProtectMem = 0x50;
+            SC_number.sc_VirtualQuery = 0x23;
+            SC_number.sc_OpenProc = 0x26;
+            SC_number.sc_CreateSec = 0x4A;
+            SC_number.sc_mapView = 0x28;
+            SC_number.sc_UnmapView = 0x2A;
+            SC_number.sc_QuerySysInfo = 0x36;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_19H2 || OSver == WINDOWS_10_19H1)
         {
-            sc_CreateThreadEx = 0xbd;
-            sc_AllocMem = 0x18;
-            sc_WriteMem = 0x3a;
-            sc_ProtectMem = 0x50;
-            sc_VirtualQuery = 0x23;
-            sc_OpenProc = 0x26;
+            SC_number.sc_CreateThreadEx = 0xbd;
+            SC_number.sc_AllocMem = 0x18;
+            SC_number.sc_ReadMem = 0x3F;
+            SC_number.sc_WriteMem = 0x3a;
+            SC_number.sc_ProtectMem = 0x50;
+            SC_number.sc_VirtualQuery = 0x23;
+            SC_number.sc_OpenProc = 0x26;
+            SC_number.sc_CreateSec = 0x4A;
+            SC_number.sc_mapView = 0x28;
+            SC_number.sc_UnmapView = 0x2A;
+            SC_number.sc_QuerySysInfo = 0x36;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_RS5)
         {
-            sc_CreateThreadEx = 0xbc;
-            sc_AllocMem = 0x18;
-            sc_WriteMem = 0x3a;
-            sc_ProtectMem = 0x50;
-            sc_VirtualQuery = 0x23;
-            sc_OpenProc = 0x26;
+            SC_number.sc_CreateThreadEx = 0xbc;
+            SC_number.sc_AllocMem = 0x18;
+            SC_number.sc_ReadMem = 0x3F;
+            SC_number.sc_WriteMem = 0x3a;
+            SC_number.sc_ProtectMem = 0x50;
+            SC_number.sc_VirtualQuery = 0x23;
+            SC_number.sc_OpenProc = 0x26;
+            SC_number.sc_CreateSec = 0x4A;
+            SC_number.sc_mapView = 0x28;
+            SC_number.sc_UnmapView = 0x2A;
+            SC_number.sc_QuerySysInfo = 0x36;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_RS4)
         {
-            sc_CreateThreadEx = 0xbb;
-            sc_AllocMem = 0x18;
-            sc_WriteMem = 0x3a;
-            sc_ProtectMem = 0x50;
-            sc_VirtualQuery = 0x23;
-            sc_OpenProc = 0x26;
+            SC_number.sc_CreateThreadEx = 0xbb;
+            SC_number.sc_AllocMem = 0x18;
+            SC_number.sc_ReadMem = 0x3F;
+            SC_number.sc_WriteMem = 0x3a;
+            SC_number.sc_ProtectMem = 0x50;
+            SC_number.sc_VirtualQuery = 0x23;
+            SC_number.sc_OpenProc = 0x26;
+            SC_number.sc_CreateSec = 0x4A;
+            SC_number.sc_mapView = 0x28;
+            SC_number.sc_UnmapView = 0x2A;
+            SC_number.sc_QuerySysInfo = 0x36;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_RS3)
         {
-            sc_CreateThreadEx = 0xba;
-            sc_AllocMem = 0x18;
-            sc_WriteMem = 0x3a;
-            sc_ProtectMem = 0x50;
-            sc_VirtualQuery = 0x23;
-            sc_OpenProc = 0x26;
+            SC_number.sc_CreateThreadEx = 0xba;
+            SC_number.sc_AllocMem = 0x18;
+            SC_number.sc_ReadMem = 0x3F;
+            SC_number.sc_WriteMem = 0x3a;
+            SC_number.sc_ProtectMem = 0x50;
+            SC_number.sc_VirtualQuery = 0x23;
+            SC_number.sc_OpenProc = 0x26;
+            SC_number.sc_CreateSec = 0x4A;
+            SC_number.sc_mapView = 0x28;
+            SC_number.sc_UnmapView = 0x2A;
+            SC_number.sc_QuerySysInfo = 0x36;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_RS2)
         {
-            sc_CreateThreadEx = 0xb9;
-            sc_AllocMem = 0x18;
-            sc_WriteMem = 0x3a;
-            sc_ProtectMem = 0x50;
-            sc_VirtualQuery = 0x23;
-            sc_OpenProc = 0x26;
+            SC_number.sc_CreateThreadEx = 0xb9;
+            SC_number.sc_AllocMem = 0x18;
+            SC_number.sc_ReadMem = 0x3F;
+            SC_number.sc_WriteMem = 0x3A;
+            SC_number.sc_ProtectMem = 0x50;
+            SC_number.sc_VirtualQuery = 0x23;
+            SC_number.sc_OpenProc = 0x26;
+            SC_number.sc_CreateSec = 0x4A;
+            SC_number.sc_mapView = 0x28;
+            SC_number.sc_UnmapView = 0x2A;
+            SC_number.sc_QuerySysInfo = 0x36;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_RS1)
         {
-            sc_CreateThreadEx = 0xb6;
-            sc_AllocMem = 0x18;
-            sc_WriteMem = 0x3a;
-            sc_ProtectMem = 0x50;
-            sc_VirtualQuery = 0x23;
-            sc_OpenProc = 0x26;
+            SC_number.sc_CreateThreadEx = 0xb6;
+            SC_number.sc_AllocMem = 0x18;
+            SC_number.sc_ReadMem = 0x3F;
+            SC_number.sc_WriteMem = 0x3A;
+            SC_number.sc_ProtectMem = 0x50;
+            SC_number.sc_VirtualQuery = 0x23;
+            SC_number.sc_OpenProc = 0x26;
+            SC_number.sc_CreateSec = 0x4A;
+            SC_number.sc_mapView = 0x28;
+            SC_number.sc_UnmapView = 0x2A;
+            SC_number.sc_QuerySysInfo = 0x36;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_TH2)
         {
-            sc_CreateThreadEx = 0xb4;
-            sc_AllocMem = 0x18;
-            sc_WriteMem = 0x3a;
-            sc_ProtectMem = 0x50;
-            sc_VirtualQuery = 0x23;
-            sc_OpenProc = 0x26;
+            SC_number.sc_CreateThreadEx = 0xb4;
+            SC_number.sc_AllocMem = 0x18;
+            SC_number.sc_ReadMem = 0x3F;
+            SC_number.sc_WriteMem = 0x3A;
+            SC_number.sc_ProtectMem = 0x50;
+            SC_number.sc_VirtualQuery = 0x23;
+            SC_number.sc_OpenProc = 0x26;
+            SC_number.sc_CreateSec = 0x4A;
+            SC_number.sc_mapView = 0x28;
+            SC_number.sc_UnmapView = 0x2A;
+            SC_number.sc_QuerySysInfo = 0x36;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_10_TH1)
         {
-            sc_CreateThreadEx = 0xb3;
-            sc_AllocMem = 0x18;
-            sc_WriteMem = 0x3a;
-            sc_ProtectMem = 0x50;
-            sc_VirtualQuery = 0x23;
-            sc_OpenProc = 0x26;
+            SC_number.sc_CreateThreadEx = 0xb3;
+            SC_number.sc_AllocMem = 0x18;
+            SC_number.sc_ReadMem = 0x3F;
+            SC_number.sc_WriteMem = 0x3A;
+            SC_number.sc_ProtectMem = 0x50;
+            SC_number.sc_VirtualQuery = 0x23;
+            SC_number.sc_OpenProc = 0x26;
+            SC_number.sc_CreateSec = 0x4A;
+            SC_number.sc_mapView = 0x28;
+            SC_number.sc_UnmapView = 0x2A;
+            SC_number.sc_QuerySysInfo = 0x36;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_8_1)
         {
-            sc_CreateThreadEx = 0xb0;
-            sc_AllocMem = 0x17;
-            sc_WriteMem = 0x39;
-            sc_ProtectMem = 0x4f;
-            sc_VirtualQuery = 0x22;
-            sc_OpenProc = 0x25;
+            SC_number.sc_CreateThreadEx = 0xB0;
+            SC_number.sc_AllocMem = 0x17;
+            SC_number.sc_ReadMem = 0x3E;
+            SC_number.sc_WriteMem = 0x39;
+            SC_number.sc_ProtectMem = 0x4F;
+            SC_number.sc_VirtualQuery = 0x22;
+            SC_number.sc_OpenProc = 0x25;
+            SC_number.sc_CreateSec = 0x49;
+            SC_number.sc_mapView = 0x27;
+            SC_number.sc_UnmapView = 0x29;
+            SC_number.sc_QuerySysInfo = 0x35;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_8)
         {
-            sc_CreateThreadEx = 0xaf;
-            sc_AllocMem = 0x16;
-            sc_WriteMem = 0x38;
-            sc_ProtectMem = 0x4e;
-            sc_VirtualQuery = 0x21;
-            sc_OpenProc = 0x24;
+            SC_number.sc_CreateThreadEx = 0xAF;
+            SC_number.sc_AllocMem = 0x16;
+            SC_number.sc_ReadMem = 0x3D;
+            SC_number.sc_WriteMem = 0x38;
+            SC_number.sc_ProtectMem = 0x4E;
+            SC_number.sc_VirtualQuery = 0x21;
+            SC_number.sc_OpenProc = 0x24;
+            SC_number.sc_CreateSec = 0x48;
+            SC_number.sc_mapView = 0x26;
+            SC_number.sc_UnmapView = 0x28;
+            SC_number.sc_QuerySysInfo = 0x34;
             init_OSver = 1;
         }
         else if (OSver == WINDOWS_7_SP1 || OSver == WINDOWS_7)
         {
-            sc_CreateThreadEx = 0xa5;
-            sc_AllocMem = 0x15;
-            sc_WriteMem = 0x37;
-            sc_ProtectMem = 0x4d;
-            sc_VirtualQuery = 0x20;
-            sc_OpenProc = 0x23;
+            SC_number.sc_CreateThreadEx = 0xA5;
+            SC_number.sc_AllocMem = 0x15;
+            SC_number.sc_ReadMem = 0x3C;
+            SC_number.sc_WriteMem = 0x37;
+            SC_number.sc_ProtectMem = 0x4D;
+            SC_number.sc_VirtualQuery = 0x20;
+            SC_number.sc_OpenProc = 0x23;
+            SC_number.sc_CreateSec = 0x47;
+            SC_number.sc_mapView = 0x25;
+            SC_number.sc_UnmapView = 0x27;
+            SC_number.sc_QuerySysInfo = 0x33;
             init_OSver = 1;
         }
-        else if (OSver == WINDOWS_VISTA_SP2)
-        {
-            sc_CreateThreadEx = 0xa5;
-            sc_AllocMem = 0x15;
-            sc_WriteMem = 0x37;
-            sc_ProtectMem = 0x4d;
-            sc_VirtualQuery = 0x20;
-            sc_OpenProc = 0x23;
-            init_OSver = 1;
-        }
-        else if (OSver == WINDOWS_VISTA_SP1)
-        {
-            sc_CreateThreadEx = 0xa5;
-            sc_AllocMem = 0x15;
-            sc_WriteMem = 0x37;
-            sc_ProtectMem = 0x4d;
-            sc_VirtualQuery = 0x20;
-            sc_OpenProc = 0x23;
-            init_OSver = 1;
-        }
-        else if (OSver == WINDOWS_VISTA)
-        {
-            sc_CreateThreadEx = 0xa7;
-            sc_AllocMem = 0x15;
-            sc_WriteMem = 0x37;
-            sc_ProtectMem = 0x4d;
-            sc_VirtualQuery = 0x20;
-            sc_OpenProc = 0x23;
-            init_OSver = 1;
-        }
+        
     }
+
     if(init_OSver)
         goto __init_Internalcall;
 
     else
     {
-        char str_zct[24] = { 0 };
-        writebyte(str_zct, (~'N'));
-        writebyte(str_zct, (~'t'));
-        writebyte(str_zct, (~'C'));
-        writebyte(str_zct, (~'r'));
-        writebyte(str_zct, (~'e'));
-        writebyte(str_zct, (~'a'));
-        writebyte(str_zct, (~'t'));
-        writebyte(str_zct, (~'e'));
-        writebyte(str_zct, (~'T'));
-        writebyte(str_zct, (~'h'));
-        writebyte(str_zct, (~'r'));
-        writebyte(str_zct, (~'e'));
-        writebyte(str_zct, (~'a'));
-        writebyte(str_zct, (~'d'));
-        writebyte(str_zct, (~'E'));
-        writebyte(str_zct, (~'x'));
+        char str_zct[32] = { 0 };
+        *(DWORD64*)(&str_zct) = 0x9A8B9E9A8DBC8BB1;
+        *(DWORD64*)(&str_zct[8]) = 0x87BA9B9E9A8D97AB;
+        decbyte(str_zct, 2);
+
         void* NtCTE = GetProcAddress_Internal(ntdll, str_zct);
-        int i = ParseSyscallscNum(NtCTE, &sc_CreateThreadEx);
+        int i = ParseSyscallscNum(NtCTE, &SC_number.sc_CreateThreadEx);
         if (i != 1)
         {
             return CREATE_THREAD_INITFAILED;
@@ -992,31 +1418,12 @@ static __forceinline NTSTATUS init_NTAPI()
     }
     {
         char str_alloc[32] = { 0 };
-        writebyte(str_alloc, (~'N'));
-        writebyte(str_alloc, (~'t'));
-        writebyte(str_alloc, (~'A'));
-        writebyte(str_alloc, (~'l'));
-        writebyte(str_alloc, (~'l'));
-        writebyte(str_alloc, (~'o'));
-        writebyte(str_alloc, (~'c'));
-        writebyte(str_alloc, (~'a'));
-        writebyte(str_alloc, (~'t'));
-        writebyte(str_alloc, (~'e'));
-        writebyte(str_alloc, (~'V'));
-        writebyte(str_alloc, (~'i'));
-        writebyte(str_alloc, (~'r'));
-        writebyte(str_alloc, (~'t'));
-        writebyte(str_alloc, (~'u'));
-        writebyte(str_alloc, (~'a'));
-        writebyte(str_alloc, (~'l'));
-        writebyte(str_alloc, (~'M'));
-        writebyte(str_alloc, (~'e'));
-        writebyte(str_alloc, (~'m'));
-        writebyte(str_alloc, (~'o'));
-        writebyte(str_alloc, (~'r'));
-        writebyte(str_alloc, (~'y'));
+        *(DWORD64*)(&str_alloc) = 0x9E9C909393BE8BB1;
+        *(DWORD64*)(&str_alloc[8]) = 0x9E8A8B8D96A99A8B;
+        *(DWORD64*)(&str_alloc[16]) = 0xFF868D90929AB293;
+        decbyte(str_alloc, 3);
         void* NtAlloc = GetProcAddress_Internal(ntdll, str_alloc);
-        int i = ParseSyscallscNum(NtAlloc, &sc_AllocMem);
+        int i = ParseSyscallscNum(NtAlloc, &SC_number.sc_AllocMem);
         if (i != 1)
         {
             return ALLOC_INITFAILED;
@@ -1024,59 +1431,38 @@ static __forceinline NTSTATUS init_NTAPI()
     }
     {
         char str_wrtMem[32] = { 0 };
-        writebyte(str_wrtMem, (~'N'));
-        writebyte(str_wrtMem, (~'t'));
-        writebyte(str_wrtMem, (~'W'));
-        writebyte(str_wrtMem, (~'r'));
-        writebyte(str_wrtMem, (~'i'));
-        writebyte(str_wrtMem, (~'t'));
-        writebyte(str_wrtMem, (~'e'));
-        writebyte(str_wrtMem, (~'V'));
-        writebyte(str_wrtMem, (~'i'));
-        writebyte(str_wrtMem, (~'r'));
-        writebyte(str_wrtMem, (~'t'));
-        writebyte(str_wrtMem, (~'u'));
-        writebyte(str_wrtMem, (~'a'));
-        writebyte(str_wrtMem, (~'l'));
-        writebyte(str_wrtMem, (~'M'));
-        writebyte(str_wrtMem, (~'e'));
-        writebyte(str_wrtMem, (~'m'));
-        writebyte(str_wrtMem, (~'o'));
-        writebyte(str_wrtMem, (~'r'));
-        writebyte(str_wrtMem, (~'y'));
+        *(DWORD64*)(&str_wrtMem) = 0xA99A8B968DA88BB1;
+        *(DWORD64*)(&str_wrtMem[8]) = 0x9AB2939E8A8B8D96;
+        *(DWORD64*)(&str_wrtMem[16]) = 0x168232FF868D9092;
+        decbyte(str_wrtMem, 3);
         void* NtWriteMem = GetProcAddress_Internal(ntdll, str_wrtMem);
-        int i = ParseSyscallscNum(NtWriteMem, &sc_WriteMem);
+        int i = ParseSyscallscNum(NtWriteMem, &SC_number.sc_WriteMem);
         if (i != 1)
         {
             return WRITE_VIRTUAL_MEM_INITFAILED;
         }
     }
     {
+        char str_readMem[32] = { 0 };
+        *(DWORD64*)(&str_readMem) = 0x96A99B9E9AAD8BB1;
+        *(DWORD64*)(&str_readMem[8]) = 0x929AB2939E8A8B8D;
+        *(DWORD64*)(&str_readMem[16]) = 0x8AB92293FF868D90;
+        decbyte(str_readMem, 3);
+        void* NtReadMem = GetProcAddress_Internal(ntdll, str_readMem);
+        int i = ParseSyscallscNum(NtReadMem, &SC_number.sc_ReadMem);
+        if (i != 1)
+        {
+            return READ_VIRTUAL_MEM_INITFAILED;
+        }
+    }
+    {
         char str_protectMem[32] = { 0 };
-        writebyte(str_protectMem, (~'N'));
-        writebyte(str_protectMem, (~'t'));
-        writebyte(str_protectMem, (~'P'));
-        writebyte(str_protectMem, (~'r'));
-        writebyte(str_protectMem, (~'o'));
-        writebyte(str_protectMem, (~'t'));
-        writebyte(str_protectMem, (~'e'));
-        writebyte(str_protectMem, (~'c'));
-        writebyte(str_protectMem, (~'t'));
-        writebyte(str_protectMem, (~'V'));
-        writebyte(str_protectMem, (~'i'));
-        writebyte(str_protectMem, (~'r'));
-        writebyte(str_protectMem, (~'t'));
-        writebyte(str_protectMem, (~'u'));
-        writebyte(str_protectMem, (~'a'));
-        writebyte(str_protectMem, (~'l'));
-        writebyte(str_protectMem, (~'M'));
-        writebyte(str_protectMem, (~'e'));
-        writebyte(str_protectMem, (~'m'));
-        writebyte(str_protectMem, (~'o'));
-        writebyte(str_protectMem, (~'r'));
-        writebyte(str_protectMem, (~'y'));
+        *(DWORD64*)(&str_protectMem) = 0x9C9A8B908DAF8BB1;
+        *(DWORD64*)(&str_protectMem[8]) = 0x939E8A8B8D96A98B;
+        *(DWORD64*)(&str_protectMem[16]) = 0xCCFF868D90929AB2;
+        decbyte(str_protectMem, 3);
         void* NtPVM = GetProcAddress_Internal(ntdll, str_protectMem);
-        int i = ParseSyscallscNum(NtPVM, &sc_ProtectMem);
+        int i = ParseSyscallscNum(NtPVM, &SC_number.sc_ProtectMem);
         if (i != 1)
         {
             return VIRTUAL_PROTECT_INITFAILED;
@@ -1084,28 +1470,12 @@ static __forceinline NTSTATUS init_NTAPI()
     }
     {
         char str_QueryMem[32] = { 0 };
-        writebyte(str_QueryMem, (~'N'));
-        writebyte(str_QueryMem, (~'t'));
-        writebyte(str_QueryMem, (~'Q'));
-        writebyte(str_QueryMem, (~'u'));
-        writebyte(str_QueryMem, (~'e'));
-        writebyte(str_QueryMem, (~'r'));
-        writebyte(str_QueryMem, (~'y'));
-        writebyte(str_QueryMem, (~'V'));
-        writebyte(str_QueryMem, (~'i'));
-        writebyte(str_QueryMem, (~'r'));
-        writebyte(str_QueryMem, (~'t'));
-        writebyte(str_QueryMem, (~'u'));
-        writebyte(str_QueryMem, (~'a'));
-        writebyte(str_QueryMem, (~'l'));
-        writebyte(str_QueryMem, (~'M'));
-        writebyte(str_QueryMem, (~'e'));
-        writebyte(str_QueryMem, (~'m'));
-        writebyte(str_QueryMem, (~'o'));
-        writebyte(str_QueryMem, (~'r'));
-        writebyte(str_QueryMem, (~'y'));
+        *(DWORD64*)(&str_QueryMem) = 0xA9868D9A8AAE8BB1;
+        *(DWORD64*)(&str_QueryMem[8]) = 0x9AB2939E8A8B8D96;
+        *(DWORD64*)(&str_QueryMem[16]) = 0x785612FF868D9092;
+        decbyte(str_QueryMem, 3);
         void* NtQVM = GetProcAddress_Internal(ntdll, str_QueryMem);
-        int i = ParseSyscallscNum(NtQVM, &sc_VirtualQuery);
+        int i = ParseSyscallscNum(NtQVM, &SC_number.sc_VirtualQuery);
         if (i != 1)
         {
             return VIRTUAL_QUERY_INITFAILED;
@@ -1113,24 +1483,65 @@ static __forceinline NTSTATUS init_NTAPI()
     }
     {
         char str_openproc[16] = { 0 };
-        writebyte(str_openproc, (~'N'));
-        writebyte(str_openproc, (~'t'));
-        writebyte(str_openproc, (~'O'));
-        writebyte(str_openproc, (~'p'));
-        writebyte(str_openproc, (~'e'));
-        writebyte(str_openproc, (~'n'));
-        writebyte(str_openproc, (~'P'));
-        writebyte(str_openproc, (~'r'));
-        writebyte(str_openproc, (~'o'));
-        writebyte(str_openproc, (~'c'));
-        writebyte(str_openproc, (~'e'));
-        writebyte(str_openproc, (~'s'));
-        writebyte(str_openproc, (~'s'));
+        *(DWORD64*)(&str_openproc) = 0x8DAF919A8FB08BB1;
+        *(DWORD64*)(&str_openproc[8]) = 0xA2BFFF8C8C9A9C90;
+        decbyte(str_openproc, 2);
         void* NtOpenProc = GetProcAddress_Internal(ntdll, str_openproc);
-        int i = ParseSyscallscNum(NtOpenProc, &sc_OpenProc);
+        int i = ParseSyscallscNum(NtOpenProc, &SC_number.sc_OpenProc);
         if (i != 1)
         {
             return OPEN_PROCESS_INITFAILED;
+        }
+    }
+    {
+        char str_CreateSec[16] = { 0 };
+        *(DWORD64*)(&str_CreateSec) = 0x9A8B9E9A8DBC88A5;
+        *(DWORD64*)(&str_CreateSec[8]) = 0xFF9190968B9C9AAC;
+        decbyte(str_CreateSec, 2);
+        void* NtCreateSec = GetProcAddress_Internal(ntdll, str_CreateSec);
+        int i = ParseSyscallscNum(NtCreateSec, &SC_number.sc_CreateSec);
+        if (i != 1)
+        {
+            return CREATE_SECTION_INITFAILED;
+        }
+    }
+    {
+        char str_mapview[32] = {0};
+        *(DWORD64*)(&str_mapview) = 0x9A96A98F9EB28BB1;
+        *(DWORD64*)(&str_mapview[8]) = 0x968B9C9AAC99B088;
+        *(DWORD32*)(&str_mapview[16]) = 0xCCFF9190;
+        decbyte(str_mapview, 3);
+        void* Ntmapview = GetProcAddress_Internal(ntdll, str_mapview);
+        int i = ParseSyscallscNum(Ntmapview, &SC_number.sc_mapView);
+        if (i != 1)
+        {
+            return MAP_SECTION_INITFAILED;
+        }
+    }
+    {
+        char str_Unmapview[32] = {0};
+        *(DWORD64*)(&str_Unmapview) = 0xA98F9E9291AA8BB1;
+        *(DWORD64*)(&str_Unmapview[8]) = 0x9C9AAC99B0889A96;
+        *(DWORD64*)(&str_Unmapview[16]) = 0x539F72FF9190968B;
+        decbyte(str_Unmapview, 3);
+        void* NtUnmapview = GetProcAddress_Internal(ntdll, str_Unmapview);
+        int i = ParseSyscallscNum(NtUnmapview, &SC_number.sc_UnmapView);
+        if (i != 1)
+        {
+            return UNMAP_SECTION_INITFAILED;
+        }
+    }
+    {
+        char str_QSysInfo[32] = { 0 };
+        *(DWORD64*)(&str_QSysInfo) = 0xAC868D9A8AAE8BB1;
+        *(DWORD64*)(&str_QSysInfo[8]) = 0x9991B6929A8B8C86;
+        *(DWORD64*)(&str_QSysInfo[16]) = 0x9190968B9E928D90;
+        decbyte(str_QSysInfo, 3);
+        void* NtQSysInfo = GetProcAddress_Internal(ntdll, str_QSysInfo);
+        int i = ParseSyscallscNum(NtQSysInfo, &SC_number.sc_QuerySysInfo);
+        if (i != 1)
+        {
+            return QUERY_SYS_INFO_INITFAILED;
         }
     }
     init_OSver = 1;
@@ -1139,22 +1550,9 @@ __init_Internalcall:
     if (init_OSver)
     {
         char str_delay[32] = { 0 };
-        writebyte(str_delay, (~'N'));
-        writebyte(str_delay, (~'t'));
-        writebyte(str_delay, (~'D'));
-        writebyte(str_delay, (~'e'));
-        writebyte(str_delay, (~'l'));
-        writebyte(str_delay, (~'a'));
-        writebyte(str_delay, (~'y'));
-        writebyte(str_delay, (~'E'));
-        writebyte(str_delay, (~'x'));
-        writebyte(str_delay, (~'e'));
-        writebyte(str_delay, (~'c'));
-        writebyte(str_delay, (~'u'));
-        writebyte(str_delay, (~'t'));
-        writebyte(str_delay, (~'i'));
-        writebyte(str_delay, (~'o'));
-        writebyte(str_delay, (~'n'));
+        *(DWORD64*)(&str_delay) = 0xBA869E939ABB8BB1;
+        *(DWORD64*)(&str_delay[8]) = 0x9190968B8A9C9A87;
+        decbyte(str_delay, 2);
         BYTE* Ntdelay = (BYTE*)GetProcAddress_Internal(ntdll, str_delay);
         if (!Ntdelay)
             return 0xDEADC0DE;
@@ -1171,8 +1569,9 @@ __init_Internalcall:
         {
             return 0xDEADC0DE;
         }
-
-        asm_initsc(sc_ProtectMem);
+        SYSCALLSTRUCT initcall{0};
+        initcall.scnumber = SC_number.sc_AllocMem;
+        
         while(1)
         {
             DWORD64 randomVA = __rdtsc();
@@ -1181,10 +1580,11 @@ __init_Internalcall:
             randomVA += (DWORD64)Ntdelay;
             if (*(BYTE*)randomVA == 0x0F && *(BYTE*)(randomVA + 1) == 0x05 && *(BYTE*)(randomVA + 2) == 0xc3)
             {
-                asm_initaddr((void*)randomVA);
+                initcall.calladdr = (~randomVA);
                 break;
             }
         }
+
         while (1)
         {
             DWORD64 randomVA = __rdtsc();
@@ -1198,15 +1598,17 @@ __init_Internalcall:
             }
         }
 
-        size_t i = 0x1000;
+        initcall.rcx = -1;
+        size_t i = 0x2000;
         DWORD old = 0;
-        uintptr_t addr = (uintptr_t)(&buffer_call);
+        uintptr_t addr = 0;
         addr &= 0xFFFFFFFFFFFFF000;
-        NTSTATUS ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)((HANDLE)-1, (void**)(&addr), &i, PAGE_EXECUTE_READWRITE, &old);
+        NTSTATUS ret = ((_NtAllocateVirtualMemory_Win64)&asm_syscall)(&initcall, (void**)(&addr), 0, &i, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
         if (!ret)
         {
-            init_syscall_buff((void*)(&buffer_call), Ntdelay, sc_CreateThreadEx, sc_AllocMem, sc_ProtectMem, sc_WriteMem, sc_VirtualQuery, sc_OpenProc);
-            ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)((HANDLE)-1, (void**)(&addr), &i, PAGE_EXECUTE_READ, &old);
+            init_syscall_buff((void*)(addr), Ntdelay, &SC_number);
+            initcall.scnumber = SC_number.sc_ProtectMem;
+            ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)(&initcall, (void**)(&addr), &i, PAGE_EXECUTE_READ, &old);
         }
         if (ret)
         {
@@ -1218,51 +1620,16 @@ __init_Internalcall:
         return 0xDEADC0DE;
     }
 
-    RtlNtStatusToDosError = (_RtlNtStatusToDosError_Win64)GetProcAddress_Internal(ntdll, "RtlNtStatusToDosError");
-    if (!RtlNtStatusToDosError)
-    {
-        return 0xF1;
-    }
     {
         char str_createproc[16] = { 0 };
-        writebyte(str_createproc, (~'C'));
-        writebyte(str_createproc, (~'r'));
-        writebyte(str_createproc, (~'e'));
-        writebyte(str_createproc, (~'a'));
-        writebyte(str_createproc, (~'t'));
-        writebyte(str_createproc, (~'e'));
-        writebyte(str_createproc, (~'P'));
-        writebyte(str_createproc, (~'r'));
-        writebyte(str_createproc, (~'o'));
-        writebyte(str_createproc, (~'c'));
-        writebyte(str_createproc, (~'e'));
-        writebyte(str_createproc, (~'s'));
-        writebyte(str_createproc, (~'s'));
-        writebyte(str_createproc, (~'W'));
-        CreateProcessW_internal = (CreateProcessW_pWin64)GetProcAddress_Internal(kernel32, str_createproc);
+        *(DWORD64*)(&str_createproc) = 0x8DAF9A8B9E9A8DBC;
+        *(DWORD64*)(&str_createproc[8]) = 0x2BFFA88C8C9A9C90;
+        decbyte(str_createproc, 2);
+        CreateProcessW_p = (CreateProcessW_pWin64)~(DWORD64)GetProcAddress_Internal(kernel32, str_createproc);
     }
-    if (!CreateProcessW_internal)
+    if (!CreateProcessW_p)
     {
         return 0xF2;
-    }
-    {
-        char str_openproc[16] = { 0 };
-        writebyte(str_openproc, (~'O'));
-        writebyte(str_openproc, (~'p'));
-        writebyte(str_openproc, (~'e'));
-        writebyte(str_openproc, (~'n'));
-        writebyte(str_openproc, (~'P'));
-        writebyte(str_openproc, (~'r'));
-        writebyte(str_openproc, (~'o'));
-        writebyte(str_openproc, (~'c'));
-        writebyte(str_openproc, (~'e'));
-        writebyte(str_openproc, (~'s'));
-        writebyte(str_openproc, (~'s'));
-        p_OpenProcess = (DWORD64)GetProcAddress_Internal(kernel32, str_openproc);
-    }
-    if (!p_OpenProcess)
-    {
-        return 0xF3;
     }
     return 0;
 }

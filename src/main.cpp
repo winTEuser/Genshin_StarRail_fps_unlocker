@@ -29,7 +29,6 @@
 using namespace std;
 
 
-bool is_supportAVX = Is_supportAVX();
 
 BYTE* _G_shellcode_buffer = 0;
 
@@ -83,8 +82,7 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
     0xFF, 0x15, 0xA4, 0xFF, 0xFF, 0xFF,                  //call [API_OpenProcess]
     0x85, 0xC0,                                          //test eax, eax
     0x74, 0x68,                                          //jz return
-    0x41, 0x89, 0xC7,                                    //mov r15d, eax
-    0x90,                                                //nop
+    0x2E, 0x41, 0x89, 0xC7,                              //mov r15d, eax
     0x44, 0x48, 0x8B, 0x3D, 0x5C, 0xFF, 0xFF, 0xFF,      //mov rdi, qword[unlocker_FpsValue_addr]
     0x4D, 0x31, 0xF6,                                    //xor r14, r14 
     0xBB, 0xF4, 0x01, 0x00, 0x00,                        //mov ebx, 0x1F4        (500ms)
@@ -233,27 +231,6 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
 };
 
 
-//use avx reg
-static INLINE void* memcpy_mm(void* dst, const void* src, size_t size)
-{
-    if (is_supportAVX)
-    {
-        size /= 0x100;
-        size_t i = 0;
-        do
-        {
-            memcpy_avx_256(((uint8_t*)dst + (i * 0x100)), ((uint8_t*)src + (i * 0x100)));
-            i++;
-        } while (i != size);
-        _mm256_zeroupper();
-        return dst;
-    }
-    else
-    {
-        return memmove(dst, src, size);
-    }
-}
-
 
 static BYTE* init_shellcode()
 {
@@ -265,8 +242,21 @@ static BYTE* init_shellcode()
     memcpy_mm((void*)_shellcode_buffer, &_shellcode_Const, sizeof(_shellcode_Const));
 
     *(uint32_t*)_shellcode_buffer = GetCurrentProcessId();       //unlocker PID
-    *(uint64_t*)(_shellcode_buffer + 0x40) = (uint64_t)(p_OpenProcess);
-    *(uint64_t*)(_shellcode_buffer + 0x48) = (uint64_t)(&ReadProcessMemory);
+    {
+        char str_openproc[16] = { 0 };
+        *(DWORD64*)(&str_openproc) = 0x9C908DAF919A8FB0;
+        *(DWORD64*)(&str_openproc[8]) = 0x3FCA87DAFF8C8C9A;
+        decbyte(str_openproc, 2);
+        *(uint64_t*)(_shellcode_buffer + 0x40) = (uint64_t)GetProcAddress_Internal((HMODULE)~Kernel32_ADDR, str_openproc);
+    }
+    {
+        char str_readprocmem[24] = { 0 };
+        *(DWORD64*)(&str_readprocmem) = 0x9C908DAF9B9E9AAD;
+        *(DWORD64*)(&str_readprocmem[8]) = 0x8D90929AB28C8C9A;
+        decbyte(str_readprocmem, 2);
+        *(DWORD*)(&str_readprocmem[16]) = 0x79;
+        *(uint64_t*)(_shellcode_buffer + 0x48) = (uint64_t)GetProcAddress_Internal((HMODULE)~Kernel32_ADDR, str_readprocmem);
+    }
     *(uint64_t*)(_shellcode_buffer + 0x50) = (uint64_t)(&Sleep);
     *(uint64_t*)(_shellcode_buffer + 0x58) = (uint64_t)(&GetModuleHandleA);
     *(uint64_t*)(_shellcode_buffer + 0x60) = (uint64_t)(&MessageBoxA);
@@ -512,7 +502,7 @@ __get_procbase_ok:
    uintptr_t mod_baseAddr = (uintptr_t)modbuffer->modBaseAddr;
    *modaddr = mod_baseAddr;
    free(modbuffer);
-   if (!ReadProcessMemory(prochandle, (void*)mod_baseAddr, out_PE_buffer, 0x1000, 0))
+   if (!ReadProcessMemoryInternal(prochandle, (void*)mod_baseAddr, out_PE_buffer, 0x1000, 0))
    {
        Show_Error_Msg(L"Read PE Failed! ");
        return 0;
@@ -1071,7 +1061,7 @@ int main(/*int argc, char** argvA*/void)
     }
     memset(boot_info, 0, sizeof(STARTUPINFOW) + sizeof(PROCESS_INFORMATION) + 0x20);
 
-    if (!CreateProcessW_internal(ProcessPath->c_str(), Command_arg, NULL, NULL, FALSE, NULL, NULL, ProcessDir->c_str(), si, pi))
+    if (!((CreateProcessW_pWin64)~(DWORD64)CreateProcessW_p)(ProcessPath->c_str(), Command_arg, NULL, NULL, FALSE, NULL, NULL, ProcessDir->c_str(), si, pi))
     {
         Show_Error_Msg(L"CreateProcess Fail!");
         return (int)-1;
@@ -1130,7 +1120,7 @@ __Get_target_sec:
         return (int)-1;
     }
     // 把整个模块读出来
-    if (ReadProcessMemory(pi->hProcess, (void*)Text_Remote_RVA, Copy_Text_VA, Text_Vsize, 0) == 0)
+    if (ReadProcessMemoryInternal(pi->hProcess, (void*)Text_Remote_RVA, Copy_Text_VA, Text_Vsize, 0) == 0)
     {
         Show_Error_Msg(L"Readmem Fail ! (text)");
         VirtualFree(Copy_Text_VA, 0, MEM_RELEASE);
@@ -1242,7 +1232,7 @@ __genshin_il:
             Show_Error_Msg(L"Malloc Failed! (il2cpp_GI)");
             goto __procfail;
         }
-        if (!ReadProcessMemory(pi->hProcess, (void*)Text_Remote_RVA, Copy_Text_VA, Text_Vsize, 0))
+        if (!ReadProcessMemoryInternal(pi->hProcess, (void*)Text_Remote_RVA, Copy_Text_VA, Text_Vsize, 0))
         {
             Show_Error_Msg(L"Readmem Fail ! (il2cpp_GI)");
             goto __procfail;
