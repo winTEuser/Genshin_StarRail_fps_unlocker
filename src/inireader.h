@@ -203,7 +203,7 @@ static void strncpy0(wchar_t* dest, const wchar_t* src, size_t size)
 }
 
 //if equl return true else return false
-inline static bool wcstrcmp0(wchar_t* fir, const wchar_t* sec)
+inline static bool wcstrcmp0(const wchar_t* fir, const wchar_t* sec)
 {
     int i = 0;
     while ((*(fir + i)) == (*(sec + i)))
@@ -543,5 +543,6 @@ int INIReader::ValueHandler(void* user, const wchar_t* section, const wchar_t* n
     reader->_sections.insert(section);
     return 1;
 }
+
 
 #endif  // __INIREADER__

@@ -5,7 +5,7 @@
 #define KEY_DECREASE_SMALL VK_LEFT
 #define FPS_TARGET 120
 #define DEFAULT_DEVICE 2
-#define CONFIG_FILENAME L"hoyofps_config.ini"
+#define CONFIG_FILENAME (L"hoyofps_config.ini")
 #define IsKeyPressed(nVirtKey)    ((GetKeyState(nVirtKey) & (1<<(sizeof(SHORT)*8-1))) != 0)
 
 #include <iostream>
@@ -173,9 +173,11 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
     //int3                                               
     0x48, 0x8B, 0x45, 0x00,                              //mov rax, qword [rbp]
     0x48, 0x83, 0xF8, 0xF8,                              //cmp rax, -8
-    0x74, 0x10,                                          //je load_ptr
+    0x74, 0x18,                                          //je load_ptr
     //init ptr                                           
-    0x44, 0xE8, 0x30, 0x00, 0x00, 0x00,                  //call init_Ptr
+    0x48, 0x83, 0xEC, 0x38,                              //sub rsp, 0x38
+    0x44, 0xE8, 0x2C, 0x00, 0x00, 0x00,                  //call init_Ptr
+    0x48, 0x83, 0xC4, 0x38,                              //add rsp, 0x38
     0x48, 0x89, 0x45, 0x08,                              //mov qword [rbp+0x08], rax
     0x48, 0x6A, 0xF8,                                    //push -8
     0x8F, 0x45, 0x00,                                    //pop [rbp]
@@ -189,8 +191,7 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
     0x89, 0x08,                                          
     0xC3,                                                
     //int3                                               
-    0xCC, 0xCC, 0xCC,                                    
-    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,      
+    0xCC, 0xCC, 0xCC,
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,      
     //int3
     0x53,                                                //push rbx                 init_Ptr
@@ -220,7 +221,7 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
     //int3 
     0xCC,
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
-    'g', 'a', 'm', 'e', 'a', 's', 's', 'e', 'm', 'b', 'l', 'y', '.', 'd', 'l', 'l', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    'G', 'a', 'm', 'e', 'A', 's', 's', 'e', 'm', 'b', 'l', 'y', '.', 'd', 'l', 'l', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
@@ -258,7 +259,7 @@ static BYTE* init_shellcode()
         *(uint64_t*)(_shellcode_buffer + 0x48) = (uint64_t)GetProcAddress_Internal((HMODULE)~Kernel32_ADDR, str_readprocmem);
     }
     *(uint64_t*)(_shellcode_buffer + 0x50) = (uint64_t)(&Sleep);
-    *(uint64_t*)(_shellcode_buffer + 0x58) = (uint64_t)(&GetModuleHandleA);
+    *(uint64_t*)(_shellcode_buffer + 0x58) = (uint64_t)(&LoadLibraryA);
     *(uint64_t*)(_shellcode_buffer + 0x60) = (uint64_t)(&MessageBoxA);
     *(uint64_t*)(_shellcode_buffer + 0x68) = (uint64_t)(&CloseHandle);
     return (BYTE*)_shellcode_buffer;
@@ -348,9 +349,9 @@ static wstring* NewWstring(size_t strlen)
         goto __malloc_fail;
     }
     memset(wcsptr, 0, sizeof(wstring));
-    if (strlen < 7)
+    if (strlen <= 7)
     {
-        *(size_t*)((uintptr_t)wcsptr + 0x10 + sizeof(uintptr_t)) = 7;
+        *(size_t*)((uintptr_t)wcsptr + 0x10 + sizeof(uintptr_t)) = strlen;
         return (wstring*)wcsptr;
     }
     else
@@ -451,25 +452,28 @@ static bool Get_Section_info(uintptr_t PE_buffer, LPCSTR Name_sec, uint32_t* Sec
 //通过进程名搜索进程ID
 static DWORD GetPID(const wchar_t* ProcessName)
 {
-    DWORD pid = 0;
-    PROCESSENTRY32W* pe32 = (PROCESSENTRY32W*)malloc(sizeof(PROCESSENTRY32W));
-    if (!pe32)
-        return 0;
-    wstring name = ProcessName;
-    towlower0((wchar_t*)name.c_str());
-    pe32->dwSize = sizeof(PROCESSENTRY32W);
-    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    for (Process32FirstW(snap, pe32); Process32NextW(snap, pe32);)
-    {
-        towlower0(pe32->szExeFile);
-        if (wcstrcmp0(pe32->szExeFile, name.c_str()))
-        {
-            pid = pe32->th32ProcessID;
-            break;
-        }
-    }
-    CloseHandle(snap);
-    return pid;
+    return GetProcPID(ProcessName);
+
+    //DWORD pid = 0;
+    //PROCESSENTRY32W* pe32 = (PROCESSENTRY32W*)malloc(sizeof(PROCESSENTRY32W));
+    //if (!pe32)
+    //    return 0;
+    //wstring name = ProcessName;
+    //towlower0((wchar_t*)name.c_str());
+    //pe32->dwSize = sizeof(PROCESSENTRY32W);
+    //HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    //for (Process32FirstW(snap, pe32); Process32NextW(snap, pe32);)
+    //{
+    //    towlower0(pe32->szExeFile);
+    //    if (wcstrcmp0(pe32->szExeFile, name.c_str()))
+    //    {
+    //        pid = pe32->th32ProcessID;
+    //        break;
+    //    }
+    //}
+    //CloseHandle(snap);
+    //return pid;
+
 }
 
 //[in],[in],[out],[out]
@@ -513,44 +517,51 @@ __get_procbase_ok:
 
 static bool WriteConfig(int fps)
 {
-    HANDLE hFile = CreateFileW(CONFIG_FILENAME, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_HIDDEN, nullptr);
+    HANDLE hFile = CreateFileW(CONFIG_FILENAME, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE)
     {
         Show_Error_Msg(L"CreateFile failed! (config)");
         return false;
     }
-    wstring* content = NewWstring(0x2000);
-    *content += L"[Setting]\nGenshinPath=" + GenGamePath + L"\n";
-    *content += L"HKSRPath=" + HKSRGamePath + L"\n";
+    wstring content{0};
+    LPVOID buffer = VirtualAlloc_Internal(0, 0x4000, PAGE_READWRITE);
+    if (!buffer)
+        return false;
+    *(DWORD64*)&content = ((DWORD64)buffer);
+    *(DWORD64*)((DWORD64)&content + 0x18) = 0x2000;
+    *(DWORD*)buffer = 0xFEFF;
+    content += L"[Setting]\nGenshinPath=" + GenGamePath + L"\n";
+    content += L"HKSRPath=" + HKSRGamePath + L"\n";
     {
-        *content += L"IsAntiMisscontact=" + std::to_wstring(isAntimiss) + L"\n";
+        content += L"IsAntiMisscontact=" + std::to_wstring(isAntimiss) + L"\n";
     }
     {
-        *content += L"TargetDevice=" + std::to_wstring(Tar_Device) + L"\n";
+        content += L"TargetDevice=" + std::to_wstring(Tar_Device) + L"\n";
     }
     {
-        *content += L"IsHookGameSet=" + std::to_wstring(isHook) + L"\n";
+        content += L"IsHookGameSet=" + std::to_wstring(isHook) + L"\n";
     }
     {
-        *content += L"GSTarget60=" + std::to_wstring(Target_set_60) + L"\n";
+        content += L"GSTarget60=" + std::to_wstring(Target_set_60) + L"\n";
     }
     {
-        *content += L"GSTarget30=" + std::to_wstring(Target_set_30) + L"\n";
+        content += L"GSTarget30=" + std::to_wstring(Target_set_30) + L"\n";
     }
     {
-        *content += L"EnableErrorMsg=" + std::to_wstring(ErrorMsg_EN) + L"\n";
+        content += L"EnableErrorMsg=" + std::to_wstring(ErrorMsg_EN) + L"\n";
     }
     {
-        *content += L"GameProcessPriority=" + std::to_wstring(ConfigPriorityClass) + L"\n";
+        content += L"GameProcessPriority=" + std::to_wstring(ConfigPriorityClass) + L"\n";
     }
     {
-        *content += L"FPS=" + std::to_wstring(fps) + L"\n";
+        content += L"FPS=" + std::to_wstring(fps) + L"\n";
     }
 
     DWORD written = 0;
-    bool re = WriteFile(hFile, content->data(), content->size() * 2, &written, nullptr);
-    DelWstring(&content);
+    bool re = WriteFile(hFile, buffer, content.size() * 2, &written, nullptr);
+    VirtualFree_Internal(buffer, 0, MEM_RELEASE);
     CloseHandle(hFile);
+    memset(&content, 0, sizeof(wstring));
     return re;
 }
 
@@ -599,7 +610,7 @@ _no_config:
         if (!QueryFullProcessImageNameW(hProcess, 0, szPath, &length))
         {
             Show_Error_Msg(L"Get game path failed!");
-            VirtualFree(szPath, 0, MEM_RELEASE);
+            VirtualFree_Internal(szPath, 0, MEM_RELEASE);
             return 0;
         }
 
@@ -613,7 +624,7 @@ _no_config:
         }
         GamePath = szPath;
 
-        VirtualFree(szPath, 0, MEM_RELEASE);
+        VirtualFree_Internal(szPath, 0, MEM_RELEASE);
 
         DWORD ExitCode = STILL_ACTIVE;
         while (ExitCode == STILL_ACTIVE)
@@ -1066,8 +1077,8 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"CreateProcess Fail!");
         return (int)-1;
     }
-    VirtualFree(Command_arg, 0, MEM_RELEASE);
-    CloseHandle(pi->hThread);
+    VirtualFree_Internal(Command_arg, 0, MEM_RELEASE);
+    //CloseHandle(pi->hThread);
 
     //加载和获取模块信息
     LPVOID _mbase_PE_buffer = 0;
@@ -1105,7 +1116,7 @@ int main(/*int argc, char** argvA*/void)
         if (Get_Section_info((uintptr_t)_mbase_PE_buffer, ".text", &Text_Vsize, &Text_Remote_RVA, Unityplayer_baseAddr))
             goto __Get_target_sec;
         Show_Error_Msg(L"Get Target Section Fail! (text)");
-        VirtualFree(_mbase_PE_buffer, 0, MEM_RELEASE);
+        VirtualFree_Internal(_mbase_PE_buffer, 0, MEM_RELEASE);
         CloseHandle(pi->hProcess);
         return -1;
     }
@@ -1123,7 +1134,7 @@ __Get_target_sec:
     if (ReadProcessMemoryInternal(pi->hProcess, (void*)Text_Remote_RVA, Copy_Text_VA, Text_Vsize, 0) == 0)
     {
         Show_Error_Msg(L"Readmem Fail ! (text)");
-        VirtualFree(Copy_Text_VA, 0, MEM_RELEASE);
+        VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
         CloseHandle(pi->hProcess);
         return (int)-1;
     }
@@ -1140,7 +1151,7 @@ __Get_target_sec:
 
     uintptr_t pfps = 0;      //normal_fps_ptr
     uintptr_t address = 0;
-    if (isGenshin) 
+    if (isGenshin)
     {
         address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "7F 0E E8 ?? ?? ?? ?? 66 0F 6E C8"); // ver 3.7 - last 
         if (address)
@@ -1163,7 +1174,7 @@ __Get_target_sec:
         }
         Show_Error_Msg(L"Genshin Pattern Outdated!\nPlase wait new update in github.\n\n");
         CloseHandle(pi->hProcess);
-        VirtualFree(Copy_Text_VA, 0, MEM_RELEASE);
+        VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
         return (int)-1;
     }
     else
@@ -1186,8 +1197,8 @@ __Get_target_sec:
                 {
                     rip = address + 1;
                     DWORD64 Patch0_addr_hook = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-                    *(uint8_t*)rip = 0x8B;      //mov dword ptr ds:[?????????], ecx   -->  mov ecx, dword ptr ds:[?????????]
-                    if (WriteProcessMemoryInternal(pi->hProcess, (LPVOID)Patch0_addr_hook, (LPVOID)rip, 0x1, 0) == 0)
+                    uint8_t patch = 0x8B;      //mov dword ptr ds:[?????????], ecx   -->  mov ecx, dword ptr ds:[?????????]
+                    if (WriteProcessMemoryInternal(pi->hProcess, (LPVOID)Patch0_addr_hook, (LPVOID)&patch, 0x1, 0) == 0)
                     {
                         Show_Error_Msg(L"Patch Fail! ");
                     }
@@ -1199,7 +1210,7 @@ __Get_target_sec:
         }
         Show_Error_Msg(L"StarRail Pattern Outdated!\nPlase wait new update in github.\n\n");
         CloseHandle(pi->hProcess);
-        VirtualFree(Copy_Text_VA, 0, MEM_RELEASE);
+        VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
         return (int)-1;
     }
     //-------------------------------------------------------------------------------------------------------------------------------------------------//
@@ -1225,7 +1236,7 @@ __genshin_il:
         goto __Continue;
 
     __Get_sec_ok:
-        VirtualFree(Copy_Text_VA, 0, MEM_RELEASE);
+        VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
         Copy_Text_VA = VirtualAlloc_Internal(0, Text_Vsize, PAGE_READWRITE);
         if (Copy_Text_VA == NULL)
         {
@@ -1251,6 +1262,7 @@ __genshin_il:
     }
 
 __Continue:
+    //SuspendThread(pi->hThread);
     uintptr_t Patch_buffer = inject_patch(pi->hProcess, address, pfps, Hksr_ui_Rva);
     if (!Patch_buffer)
     {
@@ -1262,8 +1274,11 @@ __Continue:
     DelWstring(&ProcessPath);
     DelWstring(&ProcessDir);
     DelWstring(&procname);
-    VirtualFree(_mbase_PE_buffer, 0, MEM_RELEASE);
-    VirtualFree(Copy_Text_VA, 0, MEM_RELEASE);
+    VirtualFree_Internal(_mbase_PE_buffer, 0, MEM_RELEASE);
+    VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
+
+    //ResumeThread(pi->hThread);
+    CloseHandle(pi->hThread);
     
     SetPriorityClass((HANDLE) - 1, NORMAL_PRIORITY_CLASS);
     SetPriorityClass(pi->hProcess, GamePriorityClass);
