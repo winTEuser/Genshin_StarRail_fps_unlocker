@@ -60,7 +60,6 @@ static int32_t CPUID_07_EBX = Init_CPUID_07_flag();
 */
 
 
-
 static INLINE bool Is_supportAVX()
 {
 	int32_t info = 0;
@@ -111,151 +110,178 @@ static bool Is_supportAVX512F()
 */
 
 
+
+
+bool is_supportAVX = Is_supportAVX();
+
+
 //---------------------------------------------------------------------
 // fast copy for different sizes
 // align to 16 byte for speed and safe
 //---------------------------------------------------------------------
 static INLINE void memcpy_sse2_16(void* dst, const void* src) 
 {
-	__m128i m0 = _mm_load_si128(((const __m128i*)src) + 0);
-	_mm_store_si128(((__m128i*)dst) + 0, m0);
+	__m128i m0 = _mm_loadu_si128(((const __m128i*)src) + 0);
+	_mm_storeu_si128(((__m128i*)dst) + 0, m0);
 }
 
 static INLINE void memcpy_sse2_32(void* dst, const void* src) 
 {
-	__m128i m0 = _mm_load_si128(((const __m128i*)src) + 0);
-	__m128i m1 = _mm_load_si128(((const __m128i*)src) + 1);
-	_mm_store_si128(((__m128i*)dst) + 0, m0);
-	_mm_store_si128(((__m128i*)dst) + 1, m1);
+	__m128i m0 = _mm_loadu_si128(((const __m128i*)src) + 0);
+	__m128i m1 = _mm_loadu_si128(((const __m128i*)src) + 1);
+	_mm_storeu_si128(((__m128i*)dst) + 0, m0);
+	_mm_storeu_si128(((__m128i*)dst) + 1, m1);
 }
 
 static INLINE void memcpy_sse2_64(void* dst, const void* src) 
 {
-	__m128i m0 = _mm_load_si128(((const __m128i*)src) + 0);
-	__m128i m1 = _mm_load_si128(((const __m128i*)src) + 1);
-	__m128i m2 = _mm_load_si128(((const __m128i*)src) + 2);
-	__m128i m3 = _mm_load_si128(((const __m128i*)src) + 3);
-	_mm_store_si128(((__m128i*)dst) + 0, m0);
-	_mm_store_si128(((__m128i*)dst) + 1, m1);
-	_mm_store_si128(((__m128i*)dst) + 2, m2);
-	_mm_store_si128(((__m128i*)dst) + 3, m3);
+	__m128i m0 = _mm_loadu_si128(((const __m128i*)src) + 0);
+	__m128i m1 = _mm_loadu_si128(((const __m128i*)src) + 1);
+	__m128i m2 = _mm_loadu_si128(((const __m128i*)src) + 2);
+	__m128i m3 = _mm_loadu_si128(((const __m128i*)src) + 3);
+	_mm_storeu_si128(((__m128i*)dst) + 0, m0);
+	_mm_storeu_si128(((__m128i*)dst) + 1, m1);
+	_mm_storeu_si128(((__m128i*)dst) + 2, m2);
+	_mm_storeu_si128(((__m128i*)dst) + 3, m3);
 }
 
 static INLINE void memcpy_sse2_128(void* dst, const void* src) 
 {
-	__m128i m0 = _mm_load_si128(((const __m128i*)src) + 0);
-	__m128i m1 = _mm_load_si128(((const __m128i*)src) + 1);
-	__m128i m2 = _mm_load_si128(((const __m128i*)src) + 2);
-	__m128i m3 = _mm_load_si128(((const __m128i*)src) + 3);
-	__m128i m4 = _mm_load_si128(((const __m128i*)src) + 4);
-	__m128i m5 = _mm_load_si128(((const __m128i*)src) + 5);
-	__m128i m6 = _mm_load_si128(((const __m128i*)src) + 6);
-	__m128i m7 = _mm_load_si128(((const __m128i*)src) + 7);
-	_mm_store_si128(((__m128i*)dst) + 0, m0);
-	_mm_store_si128(((__m128i*)dst) + 1, m1);
-	_mm_store_si128(((__m128i*)dst) + 2, m2);
-	_mm_store_si128(((__m128i*)dst) + 3, m3);
-	_mm_store_si128(((__m128i*)dst) + 4, m4);
-	_mm_store_si128(((__m128i*)dst) + 5, m5);
-	_mm_store_si128(((__m128i*)dst) + 6, m6);
-	_mm_store_si128(((__m128i*)dst) + 7, m7);
+	__m128i m0 = _mm_loadu_si128(((const __m128i*)src) + 0);
+	__m128i m1 = _mm_loadu_si128(((const __m128i*)src) + 1);
+	__m128i m2 = _mm_loadu_si128(((const __m128i*)src) + 2);
+	__m128i m3 = _mm_loadu_si128(((const __m128i*)src) + 3);
+	_mm_stream_si128(((__m128i*)dst) + 0, m0);
+	_mm_stream_si128(((__m128i*)dst) + 1, m1);
+	_mm_stream_si128(((__m128i*)dst) + 2, m2);
+	_mm_stream_si128(((__m128i*)dst) + 3, m3);
+	m0 = _mm_loadu_si128(((const __m128i*)src) + 4);
+	m1 = _mm_loadu_si128(((const __m128i*)src) + 5);
+	m2 = _mm_loadu_si128(((const __m128i*)src) + 6);
+	m3 = _mm_loadu_si128(((const __m128i*)src) + 7);
+	_mm_stream_si128(((__m128i*)dst) + 4, m0);
+	_mm_stream_si128(((__m128i*)dst) + 5, m1);
+	_mm_stream_si128(((__m128i*)dst) + 6, m2);
+	_mm_stream_si128(((__m128i*)dst) + 7, m3);
 }
 
 //align to 32 byte
 static INLINE void memcpy_avx_128(void* dst, const void* src)
 {
-	__m256i y0 = _mm256_load_si256((const __m256i*)src);
-	__m256i y1 = _mm256_load_si256(((const __m256i*)src) + 1);
-	__m256i y2 = _mm256_load_si256(((const __m256i*)src) + 2);
-	__m256i y3 = _mm256_load_si256(((const __m256i*)src) + 3);
-	_mm256_store_si256((__m256i*)dst, y0);
-	_mm256_store_si256(((__m256i*)dst) + 1, y1);
-	_mm256_store_si256(((__m256i*)dst) + 2, y2);
-	_mm256_store_si256(((__m256i*)dst) + 3, y3);
+	__m256i y0 = _mm256_loadu_si256((const __m256i*)src);
+	__m256i y1 = _mm256_loadu_si256(((const __m256i*)src) + 1);
+	__m256i y2 = _mm256_loadu_si256(((const __m256i*)src) + 2);
+	__m256i y3 = _mm256_loadu_si256(((const __m256i*)src) + 3);
+	_mm256_stream_si256((__m256i*)dst, y0);
+	_mm256_stream_si256(((__m256i*)dst) + 1, y1);
+	_mm256_stream_si256(((__m256i*)dst) + 2, y2);
+	_mm256_stream_si256(((__m256i*)dst) + 3, y3);
 }
 
 static INLINE void memcpy_avx_256(void* dst, const void* src)
 {
 	_mm_prefetch((const char*)src, _MM_HINT_NTA);
-	__m256i y0 = _mm256_load_si256((const __m256i*)src);
-	__m256i y1 = _mm256_load_si256(((const __m256i*)src) + 1);
-	__m256i y2 = _mm256_load_si256(((const __m256i*)src) + 2);
-	__m256i y3 = _mm256_load_si256(((const __m256i*)src) + 3);
-	__m256i y4 = _mm256_load_si256(((const __m256i*)src) + 4);
-	__m256i y5 = _mm256_load_si256(((const __m256i*)src) + 5);
-	__m256i y6 = _mm256_load_si256(((const __m256i*)src) + 6);
-	__m256i y7 = _mm256_load_si256(((const __m256i*)src) + 7);
-	_mm256_store_si256((__m256i*)dst, y0);
-	_mm256_store_si256(((__m256i*)dst) + 1, y1);
-	_mm256_store_si256(((__m256i*)dst) + 2, y2);
-	_mm256_store_si256(((__m256i*)dst) + 3, y3);
-	_mm256_store_si256(((__m256i*)dst) + 4, y4);
-	_mm256_store_si256(((__m256i*)dst) + 5, y5);
-	_mm256_store_si256(((__m256i*)dst) + 6, y6);
-	_mm256_store_si256(((__m256i*)dst) + 7, y7);
+	__m256i y0 = _mm256_loadu_si256((const __m256i*)src);
+	__m256i y1 = _mm256_loadu_si256(((const __m256i*)src) + 1);
+	__m256i y2 = _mm256_loadu_si256(((const __m256i*)src) + 2);
+	__m256i y3 = _mm256_loadu_si256(((const __m256i*)src) + 3);
+	_mm256_stream_si256(((__m256i*)dst) + 0, y0);
+	_mm256_stream_si256(((__m256i*)dst) + 1, y1);
+	_mm256_stream_si256(((__m256i*)dst) + 2, y2);
+	_mm256_stream_si256(((__m256i*)dst) + 3, y3);
+	y0 = _mm256_loadu_si256(((const __m256i*)src) + 4);
+	y1 = _mm256_loadu_si256(((const __m256i*)src) + 5);
+	y2 = _mm256_loadu_si256(((const __m256i*)src) + 6);
+	y3 = _mm256_loadu_si256(((const __m256i*)src) + 7);
+	_mm256_stream_si256(((__m256i*)dst) + 4, y0);
+	_mm256_stream_si256(((__m256i*)dst) + 5, y1);
+	_mm256_stream_si256(((__m256i*)dst) + 6, y2);
+	_mm256_stream_si256(((__m256i*)dst) + 7, y3);
 }
 
 //align to 64 byte
 static INLINE void memcpy_avx512_512(void* dst, const void* src)
 {
 	_mm_prefetch((const char*)src, _MM_HINT_NTA);
-	__m512i z0 = _mm512_load_si512((const __m512i*)src);
-	__m512i z1 = _mm512_load_si512(((const __m512i*)src) + 1);
-	__m512i z2 = _mm512_load_si512(((const __m512i*)src) + 2);
-	__m512i z3 = _mm512_load_si512(((const __m512i*)src) + 3);
-	__m512i z4 = _mm512_load_si512(((const __m512i*)src) + 4);
-	__m512i z5 = _mm512_load_si512(((const __m512i*)src) + 5);
-	__m512i z6 = _mm512_load_si512(((const __m512i*)src) + 6);
-	__m512i z7 = _mm512_load_si512(((const __m512i*)src) + 7);
-	_mm512_store_si512((__m512i*)dst, z0);
-	_mm512_store_si512(((__m512i*)dst) + 1, z1);
-	_mm512_store_si512(((__m512i*)dst) + 2, z2);
-	_mm512_store_si512(((__m512i*)dst) + 3, z3);
-	_mm512_store_si512(((__m512i*)dst) + 4, z4);
-	_mm512_store_si512(((__m512i*)dst) + 5, z5);
-	_mm512_store_si512(((__m512i*)dst) + 6, z6);
-	_mm512_store_si512(((__m512i*)dst) + 7, z7);
+	__m512i z0 = _mm512_loadu_si512((const __m512i*)src);
+	__m512i z1 = _mm512_loadu_si512(((const __m512i*)src) + 1);
+	__m512i z2 = _mm512_loadu_si512(((const __m512i*)src) + 2);
+	__m512i z3 = _mm512_loadu_si512(((const __m512i*)src) + 3);
+	_mm512_stream_si512((__m512i*)dst, z0);
+	_mm512_stream_si512(((__m512i*)dst) + 1, z1);
+	_mm512_stream_si512(((__m512i*)dst) + 2, z2);
+	_mm512_stream_si512(((__m512i*)dst) + 3, z3);
+	z0 = _mm512_loadu_si512(((const __m512i*)src) + 4);
+	z1 = _mm512_loadu_si512(((const __m512i*)src) + 5);
+	z2 = _mm512_loadu_si512(((const __m512i*)src) + 6);
+	z3 = _mm512_loadu_si512(((const __m512i*)src) + 7);
+	_mm512_stream_si512(((__m512i*)dst) + 4, z0);
+	_mm512_stream_si512(((__m512i*)dst) + 5, z1);
+	_mm512_stream_si512(((__m512i*)dst) + 6, z2);
+	_mm512_stream_si512(((__m512i*)dst) + 7, z3);
 }
 
 static INLINE void memcpy_avx512_1024(void* dst, const void* src)
 {
 	_mm_prefetch((const char*)src, _MM_HINT_NTA);
-	__m512i z0 = _mm512_load_si512((const __m512i*)src);
-	__m512i z1 = _mm512_load_si512(((const __m512i*)src) + 1);
-	__m512i z2 = _mm512_load_si512(((const __m512i*)src) + 2);
-	__m512i z3 = _mm512_load_si512(((const __m512i*)src) + 3);
-	__m512i z4 = _mm512_load_si512(((const __m512i*)src) + 4);
-	__m512i z5 = _mm512_load_si512(((const __m512i*)src) + 5);
-	__m512i z6 = _mm512_load_si512(((const __m512i*)src) + 6);
-	__m512i z7 = _mm512_load_si512(((const __m512i*)src) + 7);
-	__m512i z8 = _mm512_load_si512(((const __m512i*)src) + 8);
-	__m512i z9 = _mm512_load_si512(((const __m512i*)src) + 9);
-	__m512i z10 = _mm512_load_si512(((const __m512i*)src) + 10);
-	__m512i z11 = _mm512_load_si512(((const __m512i*)src) + 11);
-	__m512i z12 = _mm512_load_si512(((const __m512i*)src) + 12);
-	__m512i z13 = _mm512_load_si512(((const __m512i*)src) + 13);
-	__m512i z14 = _mm512_load_si512(((const __m512i*)src) + 14);
-	__m512i z15 = _mm512_load_si512(((const __m512i*)src) + 15);
-	_mm512_store_si512((__m512i*)dst, z0);
-	_mm512_store_si512(((__m512i*)dst) + 1, z1);
-	_mm512_store_si512(((__m512i*)dst) + 2, z2);
-	_mm512_store_si512(((__m512i*)dst) + 3, z3);
-	_mm512_store_si512(((__m512i*)dst) + 4, z4);
-	_mm512_store_si512(((__m512i*)dst) + 5, z5);
-	_mm512_store_si512(((__m512i*)dst) + 6, z6);
-	_mm512_store_si512(((__m512i*)dst) + 7, z7);
-	_mm512_store_si512(((__m512i*)dst) + 8, z8);
-	_mm512_store_si512(((__m512i*)dst) + 9, z9);
-	_mm512_store_si512(((__m512i*)dst) + 10, z10);
-	_mm512_store_si512(((__m512i*)dst) + 11, z11);
-	_mm512_store_si512(((__m512i*)dst) + 12, z12);
-	_mm512_store_si512(((__m512i*)dst) + 13, z13);
-	_mm512_store_si512(((__m512i*)dst) + 14, z14);
-	_mm512_store_si512(((__m512i*)dst) + 15, z15);
+	__m512i z0 = _mm512_loadu_si512((const __m512i*)src);
+	__m512i z1 = _mm512_loadu_si512(((const __m512i*)src) + 1);
+	__m512i z2 = _mm512_loadu_si512(((const __m512i*)src) + 2);
+	__m512i z3 = _mm512_loadu_si512(((const __m512i*)src) + 3);
+	__m512i z4 = _mm512_loadu_si512(((const __m512i*)src) + 4);
+	__m512i z5 = _mm512_loadu_si512(((const __m512i*)src) + 5);
+	_mm512_stream_si512(((__m512i*)dst) + 0, z0);
+	_mm512_stream_si512(((__m512i*)dst) + 1, z1);
+	_mm512_stream_si512(((__m512i*)dst) + 2, z2);
+	_mm512_stream_si512(((__m512i*)dst) + 3, z3);
+	_mm512_stream_si512(((__m512i*)dst) + 4, z4);
+	_mm512_stream_si512(((__m512i*)dst) + 5, z5);
+	z0 = _mm512_loadu_si512(((const __m512i*)src) + 6);
+	z1 = _mm512_loadu_si512(((const __m512i*)src) + 7);
+	z2 = _mm512_loadu_si512(((const __m512i*)src) + 8);
+	z3 = _mm512_loadu_si512(((const __m512i*)src) + 9);
+	z4  = _mm512_loadu_si512(((const __m512i*)src) + 10);
+	z5  = _mm512_loadu_si512(((const __m512i*)src) + 11);
+	_mm512_stream_si512(((__m512i*)dst) + 6, z0);
+	_mm512_stream_si512(((__m512i*)dst) + 7, z1);
+	_mm512_stream_si512(((__m512i*)dst) + 8, z2);
+	_mm512_stream_si512(((__m512i*)dst) + 9, z3);
+	_mm512_stream_si512(((__m512i*)dst) + 10,z4);
+	_mm512_stream_si512(((__m512i*)dst) + 11,z5);
+	z0 = _mm512_loadu_si512(((const __m512i*)src) + 12);
+	z1 = _mm512_loadu_si512(((const __m512i*)src) + 13);
+	z2 = _mm512_loadu_si512(((const __m512i*)src) + 14);
+	z3 = _mm512_loadu_si512(((const __m512i*)src) + 15);
+	_mm512_stream_si512(((__m512i*)dst) + 12, z0);
+	_mm512_stream_si512(((__m512i*)dst) + 13, z1);
+	_mm512_stream_si512(((__m512i*)dst) + 14, z2);
+	_mm512_stream_si512(((__m512i*)dst) + 15, z3);
 
 }
 
-
+//use avx reg
+static void* memcpy_mm(void* dst, const void* src, size_t size)
+{
+	if (is_supportAVX)
+	{
+		size_t last = size % 0x100;
+		size /= 0x100;
+		size_t i = 0;
+		do
+		{
+			memcpy_avx_256(((uint8_t*)dst + (i * 0x100)), ((uint8_t*)src + (i * 0x100)));
+			i++;
+		} while (i != size);
+		_mm256_zeroupper();
+		if (last)
+			return memmove((BYTE*)dst + (i * 0x100), (BYTE*)src + (i * 0x100), last);
+		return dst;
+	}
+	else
+	{
+		return memmove(dst, src, size);
+	}
+}
 
 /*
 //---------------------------------------------------------------------
@@ -792,14 +818,14 @@ static void* memcpy_fast(void* destination, const void* source, size_t size)
 			c7 = _mm_loadu_si128(((const __m128i*)src) + 7);
 			_mm_prefetch((const char*)(src + 256), _MM_HINT_NTA);
 			src += 128;
-			_mm_store_si128((((__m128i*)dst) + 0), c0);
-			_mm_store_si128((((__m128i*)dst) + 1), c1);
-			_mm_store_si128((((__m128i*)dst) + 2), c2);
-			_mm_store_si128((((__m128i*)dst) + 3), c3);
-			_mm_store_si128((((__m128i*)dst) + 4), c4);
-			_mm_store_si128((((__m128i*)dst) + 5), c5);
-			_mm_store_si128((((__m128i*)dst) + 6), c6);
-			_mm_store_si128((((__m128i*)dst) + 7), c7);
+			_mm_storeu_si128((((__m128i*)dst) + 0), c0);
+			_mm_storeu_si128((((__m128i*)dst) + 1), c1);
+			_mm_storeu_si128((((__m128i*)dst) + 2), c2);
+			_mm_storeu_si128((((__m128i*)dst) + 3), c3);
+			_mm_storeu_si128((((__m128i*)dst) + 4), c4);
+			_mm_storeu_si128((((__m128i*)dst) + 5), c5);
+			_mm_storeu_si128((((__m128i*)dst) + 6), c6);
+			_mm_storeu_si128((((__m128i*)dst) + 7), c7);
 			dst += 128;
 		}
 	}
@@ -810,14 +836,14 @@ static void* memcpy_fast(void* destination, const void* source, size_t size)
 
 		if ((((size_t)src) & 15) == 0) {	// source aligned
 			for (; size >= 128; size -= 128) {
-				c0 = _mm_load_si128(((const __m128i*)src) + 0);
-				c1 = _mm_load_si128(((const __m128i*)src) + 1);
-				c2 = _mm_load_si128(((const __m128i*)src) + 2);
-				c3 = _mm_load_si128(((const __m128i*)src) + 3);
-				c4 = _mm_load_si128(((const __m128i*)src) + 4);
-				c5 = _mm_load_si128(((const __m128i*)src) + 5);
-				c6 = _mm_load_si128(((const __m128i*)src) + 6);
-				c7 = _mm_load_si128(((const __m128i*)src) + 7);
+				c0 = _mm_loadu_si128(((const __m128i*)src) + 0);
+				c1 = _mm_loadu_si128(((const __m128i*)src) + 1);
+				c2 = _mm_loadu_si128(((const __m128i*)src) + 2);
+				c3 = _mm_loadu_si128(((const __m128i*)src) + 3);
+				c4 = _mm_loadu_si128(((const __m128i*)src) + 4);
+				c5 = _mm_loadu_si128(((const __m128i*)src) + 5);
+				c6 = _mm_loadu_si128(((const __m128i*)src) + 6);
+				c7 = _mm_loadu_si128(((const __m128i*)src) + 7);
 				_mm_prefetch((const char*)(src + 256), _MM_HINT_NTA);
 				src += 128;
 				_mm_stream_si128((((__m128i*)dst) + 0), c0);

@@ -934,6 +934,56 @@ static DWORD Hksr_ENmobile_get_Rva(LPCWSTR GPath)
    
 }
 
+
+static HMODULE RemoteDll_Inject(HANDLE Tar_handle, LPCWSTR DllPath)
+{
+    size_t strlen = 0;
+    while (1)
+    {
+        if (*(WORD*)(DllPath + strlen))
+        {
+            strlen++;
+        }
+        else
+        {
+            strlen *= 2;
+            break;
+        }
+        
+    }
+    HANDLE file_Handle = CreateFileW(DllPath, GENERIC_ALL, NULL, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file_Handle != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle(file_Handle);
+        LPVOID buffer = VirtualAllocEx_Internal(Tar_handle, NULL, strlen + 0x1000, PAGE_READWRITE);
+        if (buffer)
+        {
+            HMODULE result = 0;
+            DWORD64 payload[4] = {0xB848C03138EC8348 ,(DWORD64)&LoadLibraryW, 0xFE605894890D0FF ,0xCCC338C483480000};
+            if (WriteProcessMemoryInternal(Tar_handle, buffer, &payload, 0x20, 0))
+            {
+                if (VirtualProtect_Internal(Tar_handle, buffer, 0x1000, PAGE_EXECUTE_READ, 0))
+                {
+                    if (WriteProcessMemoryInternal(Tar_handle, ((BYTE*)buffer) + 0x1000, (void*)DllPath, strlen, 0))
+                    {
+                        HANDLE hThread = CreateThread_Internal(Tar_handle, 0, (LPTHREAD_START_ROUTINE)buffer, ((BYTE*)buffer) + 0x1000);
+                        if (hThread)
+                        {
+                            WaitForSingleObject(hThread, 0xFFFFFFFF);
+                            ReadProcessMemoryInternal(Tar_handle, ((BYTE*)buffer) + 0x1000, &result, 0x8, 0);
+                            CloseHandle(hThread);
+                        }
+                    }
+                }
+            }
+            VirtualFreeEx(Tar_handle, buffer, 0, MEM_RELEASE);
+            return result;
+        }
+        return 0;
+    }
+    return 0;
+}
+
 //For choose suspend
 static DWORD __stdcall Thread_display(LPVOID null)
 {
@@ -1023,7 +1073,7 @@ int main(/*int argc, char** argvA*/void)
         DWORD lSize;
         DWORD64 Size = 0;
         HANDLE file_Handle = CreateFileW(ProcessPath->c_str(), GENERIC_ALL, NULL, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-        if(file_Handle)
+        if (file_Handle != INVALID_HANDLE_VALUE)
         {
             lSize = GetFileSize(file_Handle, (LPDWORD)(&Size));
             Size = (Size << 32) | lSize;
@@ -1034,7 +1084,7 @@ int main(/*int argc, char** argvA*/void)
         }
         else 
         {
-            Show_Error_Msg(L"OpenFile Fail !");
+            Show_Error_Msg(L"OpenFile Failed!");
         }
     }
     
@@ -1262,7 +1312,9 @@ __genshin_il:
     }
 
 __Continue:
-    //SuspendThread(pi->hThread);
+    SuspendThread(pi->hThread);
+    SetPriorityClass(pi->hProcess, GamePriorityClass);
+    //RemoteDll_Inject(pi->hProcess, L"D:\\Genshin\\plugin.dll");
     uintptr_t Patch_buffer = inject_patch(pi->hProcess, address, pfps, Hksr_ui_Rva);
     if (!Patch_buffer)
     {
@@ -1276,12 +1328,11 @@ __Continue:
     DelWstring(&procname);
     VirtualFree_Internal(_mbase_PE_buffer, 0, MEM_RELEASE);
     VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
-
-    //ResumeThread(pi->hThread);
+    
+    ResumeThread(pi->hThread);
     CloseHandle(pi->hThread);
     
     SetPriorityClass((HANDLE) - 1, NORMAL_PRIORITY_CLASS);
-    SetPriorityClass(pi->hProcess, GamePriorityClass);
 
     wprintf_s(L"PID: %d\n \nDone! \n \nUse Right Ctrl Key with ↑↓←→ key to change fps limted\n使用键盘上的右Ctrl键和方向键调节帧率限制\n\n\n  Rctrl + ↑ : +20\n  Rctrl + ↓ : -20\n  Rctrl + ← : -2\n  Rctrl + → : +2\n\n", pi->dwProcessId);
     

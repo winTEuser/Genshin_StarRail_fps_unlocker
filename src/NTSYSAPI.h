@@ -765,6 +765,11 @@ static PVOID WINAPI VirtualAllocEx_Internal(HANDLE procHandle, PVOID dst_baseadd
         return 0;
     }
     void* baseaddr = dst_baseaddr;
+    if(size & 0xFFF)
+    {
+        size &= 0xFFFFFFFFFFFFF000;
+        size += 0x1000;
+    }
     NTSTATUS ret = NtAllocateVirtualMemory(procHandle, &baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
     if (ret)
     {
@@ -936,7 +941,7 @@ static HANDLE WINAPI CreateThread_Internal(HANDLE procHandle, LPSECURITY_ATTRIBU
         return 0;
     }
     HANDLE retHandle = 0;
-    NTSTATUS status = NtCreateThreadEx(&retHandle, 0x1FFFF, 0, procHandle, lpStartAddress, lpParameter, 0, 0, 0xC000, 0x30000, 0);
+    NTSTATUS status = NtCreateThreadEx(&retHandle, GENERIC_ALL, 0, procHandle, lpStartAddress, lpParameter, 0, 0, 0xC000, 0x30000, 0);
     if (status)
     {
         BaseSetLastNTError_inter(status);
