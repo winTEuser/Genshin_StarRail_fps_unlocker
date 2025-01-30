@@ -786,20 +786,26 @@ static PVOID WINAPI VirtualAlloc_Internal(PVOID dst_baseaddr, size_t size, DWORD
 }
 
 
-static BOOLEAN WINAPI VirtualFree_Internal(PVOID baseaddr, size_t size, DWORD Freetype)
+static BOOLEAN WINAPI VirtualFreeEx_Internal(HANDLE handle,PVOID baseaddr, size_t size, DWORD Freetype)
 {
     if (!NtFreeVirtualMemory)
     {
         BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
         return 0;
     }
-    NTSTATUS ret = NtFreeVirtualMemory((HANDLE)-1, &baseaddr, &size, Freetype);
+    NTSTATUS ret = NtFreeVirtualMemory(handle, &baseaddr, &size, Freetype);
     if (ret)
     {
         BaseSetLastNTError_inter(ret);
         return 0;
     }
     return 1;
+}
+
+
+static BOOLEAN WINAPI VirtualFree_Internal(PVOID baseaddr, size_t size, DWORD Freetype)
+{
+    return VirtualFreeEx_Internal((HANDLE)-1, baseaddr, size, Freetype);
 }
 
 
@@ -1016,7 +1022,6 @@ static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCAL
     *(DWORD64*)((call + 0x48) + (vaAL & 0x7F0)) = 0x834800408B480868;
     *(DWORD32*)((call + 0x50) + (vaAL & 0x7F0)) = 0xCCC310C4;
 
-    
     *(DWORD64*)(spoofcallstart + 0)    = 0x24A48D48C48B4850;
     *(DWORD64*)(spoofcallstart + 0x8)  = 0x242C8748FFFFF980;
     *(DWORD64*)(spoofcallstart + 0x10) = 0x2404894808EC8348;

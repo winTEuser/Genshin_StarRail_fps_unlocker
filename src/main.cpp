@@ -383,36 +383,6 @@ static INLINE void DelWstring(wstring** pwstr)
     return;
 }
 
-//获取目标进程DLL信息
-static bool GetModule(DWORD pid, const wchar_t* ModuleName, PMODULEENTRY32W pEntry)
-{
-    if (!pEntry)
-        return false;
-    wstring name = ModuleName;
-    towlower0((wchar_t*)name.c_str());
-    pEntry->dwSize = sizeof(MODULEENTRY32W);
-    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid);
-    bool temp = Module32FirstW(snap, pEntry);
-    if (temp)
-    {
-        do
-        {
-            if (pEntry->th32ProcessID != pid)
-                continue;
-            towlower0(pEntry->szModule);
-            if (wcstrcmp0(pEntry->szModule, name.c_str()))
-            {
-                CloseHandle(snap);
-                return 1;
-            }
-
-        } while (Module32NextW(snap, pEntry));
-
-    }
-    CloseHandle(snap);
-    return 0;
-}
-
 //[in],[in],[out],[out],[in]
 static bool Get_Section_info(uintptr_t PE_buffer, LPCSTR Name_sec, uint32_t* Sec_Vsize, uintptr_t* Sec_Remote_RVA, uintptr_t Remote_BaseAddr)
 {
@@ -474,44 +444,6 @@ static DWORD GetPID(const wchar_t* ProcessName)
     //CloseHandle(snap);
     //return pid;
 
-}
-
-//[in],[in],[out],[out]
-static bool GetRemoteModulePEinfo(HANDLE prochandle, LPCWSTR mod_name, LPVOID out_PE_buffer, uintptr_t* modaddr)
-{
-    if (!prochandle || !mod_name || !out_PE_buffer || !modaddr)
-        return 0;
-
-    MODULEENTRY32W* modbuffer = (MODULEENTRY32W*)malloc(sizeof(MODULEENTRY32W));
-    if (!modbuffer)
-        return 0;
-    
-    DWORD times = 100;
-    DWORD pid = GetProcessId(prochandle);
-    while (times != 0)
-    {
-        if (GetModule(pid, mod_name, modbuffer))
-        {
-            goto __get_procbase_ok;
-        }
-        Sleep(100);
-        times -= 1;
-    }
-    Show_Error_Msg(L"Get Module time out!");
-    return 0;
-
-__get_procbase_ok:
-   if (modbuffer->modBaseAddr == 0)
-       return 0;
-   uintptr_t mod_baseAddr = (uintptr_t)modbuffer->modBaseAddr;
-   *modaddr = mod_baseAddr;
-   free(modbuffer);
-   if (!ReadProcessMemoryInternal(prochandle, (void*)mod_baseAddr, out_PE_buffer, 0x1000, 0))
-   {
-       Show_Error_Msg(L"Read PE Failed! ");
-       return 0;
-   }
-   return 1;
 }
 
 
@@ -726,14 +658,15 @@ __path_ok:
 }
 
 //[out] CommandLinew
-static bool Init_Game_boot_arg(LPWSTR CommandLinew)
+//The first 16 bytes are reserved
+static bool Init_Game_boot_arg(LPVOID Buffer)
 {
-    if (!CommandLinew)
+    if (!Buffer)
     {
         Show_Error_Msg(L"null ptr exception in init commandline");
         return 0;
     }
-    *(wchar_t*)CommandLinew = 0;
+    *(LPVOID*)Buffer = 0;
     int argNum = 0;
     LPWSTR* argvW = CommandLineToArgvW(::GetCommandLineW(), &argNum);
     std::wstring CommandLine{};
@@ -742,6 +675,7 @@ static bool Init_Game_boot_arg(LPWSTR CommandLinew)
         int _game_argc_start = 0;
         wchar_t boot_genshin[] = L"-genshin";
         wchar_t boot_starrail[] = L"-hksr";
+        wchar_t loadLib[] = L"-loadlib";
         wchar_t Use_Mobile_UI[] = L"-enablemobileui";
         wstring* temparg = NewWstring(0x400);
         *temparg = argvW[1];
@@ -761,13 +695,7 @@ static bool Init_Game_boot_arg(LPWSTR CommandLinew)
                     _game_argc_start = 3;
                 }
                 else { _game_argc_start = 2; }
-                for (int i = _game_argc_start; i < argNum; i++)
-                {
-                    CommandLine += argvW[i];
-                    CommandLine += L" ";
-                }
             }
-
         }
         else if (*temparg == boot_starrail)
         {
@@ -783,17 +711,26 @@ static bool Init_Game_boot_arg(LPWSTR CommandLinew)
                     _game_argc_start = 3;
                 }
                 else { _game_argc_start = 2; }
-                for (int i = _game_argc_start; i < argNum; i++)
-                {
-                    CommandLine += argvW[i];
-                    CommandLine += L" ";
-                }
             }
         }
         else
         {
-            MessageBoxW(_console_HWND, L"参数错误 \nArguments error ( unlocker.exe -[game] -[game argv] -..... ) \n", L"Tip", 0x10);
+            MessageBoxW(_console_HWND, L"参数错误 \nArguments error ( unlocker.exe -[game] -[game argv] ..... ) \n", L"Tip", 0x10);
             return 0;
+        }
+        *temparg = argvW[_game_argc_start];
+        towlower0((wchar_t*)temparg->c_str());
+        if (*temparg == loadLib)
+        {
+            *temparg = argvW[++_game_argc_start];
+            LPVOID LibPath = malloc(temparg->size() * 2);
+            strncpy0((wchar_t*)LibPath, temparg->c_str(), temparg->size() * 2);
+            *(LPVOID*)Buffer = LibPath;
+        }
+        for (int i = _game_argc_start; i < argNum; i++)
+        {
+            CommandLine += argvW[i];
+            CommandLine += L" ";
         }
         DelWstring(&temparg);
     }
@@ -814,7 +751,7 @@ static bool Init_Game_boot_arg(LPWSTR CommandLinew)
             SetConsoleTitleA("This console control HKStarRailFPS");
         }
     }
-    strncpy0(CommandLinew, CommandLine.c_str(),CommandLine.size()*2);
+    strncpy0((wchar_t*)((BYTE*)Buffer + 0x10), CommandLine.c_str(), CommandLine.size() * 2);
     return 1;
 }
 
@@ -976,7 +913,7 @@ static HMODULE RemoteDll_Inject(HANDLE Tar_handle, LPCWSTR DllPath)
                     }
                 }
             }
-            VirtualFreeEx(Tar_handle, buffer, 0, MEM_RELEASE);
+            VirtualFreeEx_Internal(Tar_handle, buffer, 0, MEM_RELEASE);
             return result;
         }
         return 0;
@@ -1025,7 +962,8 @@ int main(/*int argc, char** argvA*/void)
 
     wprintf_s(L"FPS unlocker 2.8.4\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
 
-    LPWSTR Command_arg = (LPWSTR)malloc(0x1000);
+    BYTE* Command_arg = (BYTE*)malloc(0x1000);
+    LPWSTR LibPath = 0;
     if (!Command_arg)
     {
         Show_Error_Msg(L"Malloc failed!");
@@ -1034,6 +972,8 @@ int main(/*int argc, char** argvA*/void)
 
     if (Init_Game_boot_arg(Command_arg) == 0)
         return 0; 
+
+    LibPath = *(LPWSTR*)Command_arg;
 
     if (NTSTATUS r = init_API())
     {
@@ -1122,14 +1062,12 @@ int main(/*int argc, char** argvA*/void)
     }
     memset(boot_info, 0, sizeof(STARTUPINFOW) + sizeof(PROCESS_INFORMATION) + 0x20);
 
-    if (!((CreateProcessW_pWin64)~(DWORD64)CreateProcessW_p)(ProcessPath->c_str(), Command_arg, NULL, NULL, FALSE, NULL, NULL, ProcessDir->c_str(), si, pi))
+    if (!((CreateProcessW_pWin64)~(DWORD64)CreateProcessW_p)(ProcessPath->c_str(), (LPWSTR)((BYTE*)Command_arg + 0x10), NULL, NULL, FALSE, CREATE_SUSPENDED | GamePriorityClass, NULL, ProcessDir->c_str(), si, pi))
     {
         Show_Error_Msg(L"CreateProcess Fail!");
         return (int)-1;
     }
-    VirtualFree_Internal(Command_arg, 0, MEM_RELEASE);
-    //CloseHandle(pi->hThread);
-
+    free(Command_arg);
     //加载和获取模块信息
     LPVOID _mbase_PE_buffer = 0;
     uintptr_t Text_Remote_RVA = 0;
@@ -1146,16 +1084,36 @@ int main(/*int argc, char** argvA*/void)
 
         if (isGenshin && is_old_version == 0)
         {
+            PCONTEXT temp = (PCONTEXT)malloc(sizeof(CONTEXT));
+            if (!temp)
+                return -1;
+            if (GetThreadContext(pi->hThread, temp))
+            {
+                DWORD64 TarPeb = temp->Rdx;
+                ReadProcessMemoryInternal(pi->hProcess, (void*)(TarPeb + 0x10), &Unityplayer_baseAddr, 0x8, 0);
+            }
+            free(temp);
+            if (Unityplayer_baseAddr)
+            {
+                if (ReadProcessMemoryInternal(pi->hProcess, (void*)Unityplayer_baseAddr, _mbase_PE_buffer, 0x1000, 0))
+                    goto __get_modpe_ok;
+            }
+            /*
             if (GetRemoteModulePEinfo(pi->hProcess, procname->c_str(), _mbase_PE_buffer, &Unityplayer_baseAddr))
             {
                 goto __get_modpe_ok;
             }
+            */
         }
         else
         {
-            if (GetRemoteModulePEinfo(pi->hProcess, L"unityplayer.dll", _mbase_PE_buffer, &Unityplayer_baseAddr))
+            wstring EngPath = *ProcessDir;
+            EngPath += L"\\UnityPlayer.dll";
+            Unityplayer_baseAddr = (uintptr_t)RemoteDll_Inject(pi->hProcess, EngPath.c_str());
+            if (Unityplayer_baseAddr)
             {
-                goto __get_modpe_ok;
+                if(ReadProcessMemoryInternal(pi->hProcess, (void*)Unityplayer_baseAddr, _mbase_PE_buffer, 0x1000, 0))
+                    goto __get_modpe_ok;
             }
         }
         return -1;
@@ -1270,10 +1228,15 @@ __genshin_il:
         uintptr_t UA_baseAddr = Unityplayer_baseAddr;
         if (is_old_version)
         {
-            if (!GetRemoteModulePEinfo(pi->hProcess, L"UserAssembly.dll", _mbase_PE_buffer, &UA_baseAddr))
+            wstring il2cppPath = *ProcessDir;
+            il2cppPath += L"YuanShen_Data\\Native\\Data\\etc\\UserAssembly.dll";
+            UA_baseAddr = (uintptr_t)RemoteDll_Inject(pi->hProcess, il2cppPath.c_str());
+            if (UA_baseAddr)
             {
-                isHook = 0;
-                goto __Continue;
+                if (!ReadProcessMemoryInternal(pi->hProcess, (void*)UA_baseAddr, _mbase_PE_buffer, 0x1000, 0))
+                {
+                    goto __procfail;
+                }
             }
         }
         if (Get_Section_info((uintptr_t)_mbase_PE_buffer, "il2cpp", &Text_Vsize, &Text_Remote_RVA, UA_baseAddr))
@@ -1312,9 +1275,6 @@ __genshin_il:
     }
 
 __Continue:
-    SuspendThread(pi->hThread);
-    SetPriorityClass(pi->hProcess, GamePriorityClass);
-    //RemoteDll_Inject(pi->hProcess, L"D:\\Genshin\\plugin.dll");
     uintptr_t Patch_buffer = inject_patch(pi->hProcess, address, pfps, Hksr_ui_Rva);
     if (!Patch_buffer)
     {
@@ -1322,6 +1282,16 @@ __Continue:
         return -1;
     }
     _G_shellcode_buffer = (BYTE*)Patch_buffer;
+
+    if (LibPath)
+    {
+        HMODULE mod = RemoteDll_Inject(pi->hProcess, LibPath);
+        if (!mod)
+        {
+            Show_Error_Msg(L"Dll Inject Fail !\n");
+        }
+        free(LibPath);
+    }
     
     DelWstring(&ProcessPath);
     DelWstring(&ProcessDir);
@@ -1332,15 +1302,13 @@ __Continue:
     ResumeThread(pi->hThread);
     CloseHandle(pi->hThread);
     
-    SetPriorityClass((HANDLE) - 1, NORMAL_PRIORITY_CLASS);
+    SetPriorityClass((HANDLE) -1, NORMAL_PRIORITY_CLASS);
 
     wprintf_s(L"PID: %d\n \nDone! \n \nUse Right Ctrl Key with ↑↓←→ key to change fps limted\n使用键盘上的右Ctrl键和方向键调节帧率限制\n\n\n  Rctrl + ↑ : +20\n  Rctrl + ↓ : -20\n  Rctrl + ← : -2\n  Rctrl + → : +2\n\n", pi->dwProcessId);
     
     // 创建printf线程
-    HANDLE temp = CreateThread_Internal((HANDLE) - 1, 0, Thread_display, 0);
-    if (temp)
-        CloseHandle(temp);
-    else
+    HANDLE hdisplay = CreateThread_Internal((HANDLE) - 1, 0, Thread_display, 0);
+    if (!hdisplay)
         Show_Error_Msg(L"Create Thread <Thread_display> Error! ");
 
     DWORD dwExitCode = STILL_ACTIVE;
@@ -1391,10 +1359,8 @@ __Continue:
     CloseHandle(pi->hProcess);
     free(boot_info);
     Process_endstate++;
-    while (Process_endstate)
-    {
-        Sleep(100);
-    }
+    WaitForSingleObject(hdisplay, INFINITE);
+    CloseHandle(hdisplay);
    
     return 1;
 }
