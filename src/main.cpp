@@ -658,7 +658,7 @@ __path_ok:
 }
 
 //[out] CommandLinew
-//The first 16 bytes are reserved
+//The first 16 bytes are used by other arg
 static bool Init_Game_boot_arg(LPVOID Buffer)
 {
     if (!Buffer)
@@ -666,7 +666,7 @@ static bool Init_Game_boot_arg(LPVOID Buffer)
         Show_Error_Msg(L"null ptr exception in init commandline");
         return 0;
     }
-    *(LPVOID*)Buffer = 0;
+    memset(Buffer, 0, 0x10);
     int argNum = 0;
     LPWSTR* argvW = CommandLineToArgvW(::GetCommandLineW(), &argNum);
     std::wstring CommandLine{};
@@ -691,7 +691,7 @@ static bool Init_Game_boot_arg(LPVOID Buffer)
                 if (*temparg == Use_Mobile_UI)
                 {
                     Use_mobile_UI = 1;
-                    CommandLine += L" use_mobile_platform -is_cloud 1 -platform_type CLOUD_THIRD_PARTY_MOBILE ";
+                    CommandLine += L"use_mobile_platform -is_cloud 1 -platform_type CLOUD_THIRD_PARTY_MOBILE";
                     _game_argc_start = 3;
                 }
                 else { _game_argc_start = 2; }
@@ -718,14 +718,22 @@ static bool Init_Game_boot_arg(LPVOID Buffer)
             MessageBoxW(_console_HWND, L"参数错误 \nArguments error ( unlocker.exe -[game] -[game argv] ..... ) \n", L"Tip", 0x10);
             return 0;
         }
-        *temparg = argvW[_game_argc_start];
-        towlower0((wchar_t*)temparg->c_str());
-        if (*temparg == loadLib)
+        if (argNum > _game_argc_start)
         {
-            *temparg = argvW[++_game_argc_start];
-            LPVOID LibPath = malloc(temparg->size() * 2);
-            strncpy0((wchar_t*)LibPath, temparg->c_str(), temparg->size() * 2);
-            *(LPVOID*)Buffer = LibPath;
+            *temparg = argvW[_game_argc_start];
+            towlower0((wchar_t*)temparg->c_str());
+            if (*temparg == loadLib)
+            {
+                _game_argc_start++;
+                if (argNum > _game_argc_start)
+                {
+                    *temparg = argvW[_game_argc_start];
+                    LPVOID LibPath = malloc(temparg->size() * 2);
+                    strncpy0((wchar_t*)LibPath, temparg->c_str(), temparg->size() * 2);
+                    *(LPVOID*)Buffer = LibPath;
+                    _game_argc_start++;
+                }
+            }
         }
         for (int i = _game_argc_start; i < argNum; i++)
         {
@@ -871,52 +879,77 @@ static DWORD Hksr_ENmobile_get_Rva(LPCWSTR GPath)
    
 }
 
-
+//when DllPath is null return base img addr
 static HMODULE RemoteDll_Inject(HANDLE Tar_handle, LPCWSTR DllPath)
 {
+    DWORD64 API = (DWORD64)&LoadLibraryW;
+    size_t Pathsize = 0x2000;
     size_t strlen = 0;
-    while (1)
+    if (!DllPath)
     {
-        if (*(WORD*)(DllPath + strlen))
+        API = (DWORD64)&GetModuleHandleW;
+        if (API)
         {
-            strlen++;
+            goto __inject_proc;
         }
-        else
-        {
-            strlen *= 2;
-            break;
-        }
-        
     }
-    HANDLE file_Handle = CreateFileW(DllPath, GENERIC_ALL, NULL, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (file_Handle != INVALID_HANDLE_VALUE)
+    else
     {
-        CloseHandle(file_Handle);
-        LPVOID buffer = VirtualAllocEx_Internal(Tar_handle, NULL, strlen + 0x1000, PAGE_READWRITE);
-        if (buffer)
+        while (1)
         {
-            HMODULE result = 0;
-            DWORD64 payload[4] = {0xB848C03138EC8348 ,(DWORD64)&LoadLibraryW, 0xFE605894890D0FF ,0xCCC338C483480000};
-            if (WriteProcessMemoryInternal(Tar_handle, buffer, &payload, 0x20, 0))
+            if (*(WORD*)(DllPath + strlen))
             {
-                if (VirtualProtect_Internal(Tar_handle, buffer, 0x1000, PAGE_EXECUTE_READ, 0))
-                {
-                    if (WriteProcessMemoryInternal(Tar_handle, ((BYTE*)buffer) + 0x1000, (void*)DllPath, strlen, 0))
-                    {
-                        HANDLE hThread = CreateThread_Internal(Tar_handle, 0, (LPTHREAD_START_ROUTINE)buffer, ((BYTE*)buffer) + 0x1000);
-                        if (hThread)
-                        {
-                            WaitForSingleObject(hThread, 0xFFFFFFFF);
-                            ReadProcessMemoryInternal(Tar_handle, ((BYTE*)buffer) + 0x1000, &result, 0x8, 0);
-                            CloseHandle(hThread);
-                        }
-                    }
-                }
+                strlen++;
             }
-            VirtualFreeEx_Internal(Tar_handle, buffer, 0, MEM_RELEASE);
-            return result;
+            else
+            {
+                strlen *= 2;
+                Pathsize += strlen;
+                break;
+            }
+        }
+        HANDLE file_Handle = CreateFileW(DllPath, GENERIC_ALL, NULL, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (file_Handle != INVALID_HANDLE_VALUE)
+        {
+            CloseHandle(file_Handle);
+            goto __inject_proc;
         }
         return 0;
+    }
+    return 0;
+
+__inject_proc:
+    LPVOID buffer = VirtualAllocEx_Internal(Tar_handle, NULL, Pathsize, PAGE_READWRITE);
+    if (buffer)
+    {
+        HMODULE result = 0;
+        DWORD64 payload[4] = { 0xB848C03138EC8348 , API, 0xFE605894890D0FF ,0xCCC338C483480000 };
+        if (WriteProcessMemoryInternal(Tar_handle, buffer, &payload, 0x20, 0))
+        {
+            if (VirtualProtect_Internal(Tar_handle, buffer, 0x1000, PAGE_EXECUTE_READ, 0))
+            {
+                LPVOID RCX = 0;
+                if (DllPath)
+                {
+                    if (!WriteProcessMemoryInternal(Tar_handle, ((BYTE*)buffer) + 0x1000, (void*)DllPath, strlen, 0))
+                    {
+                        VirtualFreeEx_Internal(Tar_handle, buffer, 0, MEM_RELEASE);
+                        return 0;
+                    }
+                    RCX = ((BYTE*)buffer) + 0x1000;
+                }
+                HANDLE hThread = CreateThread_Internal(Tar_handle, 0, (LPTHREAD_START_ROUTINE)buffer, RCX);
+                if (hThread)
+                {
+                    WaitForSingleObject(hThread, 0xFFFFFFFF);
+                    ReadProcessMemoryInternal(Tar_handle, ((BYTE*)buffer) + 0x1000, &result, 0x8, 0);
+                    CloseHandle(hThread);
+                }
+                
+            }
+        }
+        VirtualFreeEx_Internal(Tar_handle, buffer, 0, MEM_RELEASE);
+        return result;
     }
     return 0;
 }
@@ -951,6 +984,7 @@ static void FullScreen()
 int main(/*int argc, char** argvA*/void)
 {
     setlocale(LC_CTYPE, "");
+    FullScreen();
     SetConsoleTitleA("HoyoGameFPSunlocker");
     SetPriorityClass((HANDLE)-1, REALTIME_PRIORITY_CLASS);
     _console_HWND = GetConsoleWindow();
@@ -958,11 +992,16 @@ int main(/*int argc, char** argvA*/void)
     {
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
-    FullScreen();
+    if (NTSTATUS r = init_API())
+    {
+        printf_s("\nInit Error: 0x%X", r);
+        Show_Error_Msg(L"InitAPI failed!");
+        return r;
+    }
 
     wprintf_s(L"FPS unlocker 2.8.4\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
 
-    BYTE* Command_arg = (BYTE*)malloc(0x1000);
+    BYTE* Command_arg = (BYTE*)VirtualAlloc_Internal(0, 0x2000, PAGE_READWRITE);
     LPWSTR LibPath = 0;
     if (!Command_arg)
     {
@@ -975,12 +1014,7 @@ int main(/*int argc, char** argvA*/void)
 
     LibPath = *(LPWSTR*)Command_arg;
 
-    if (NTSTATUS r = init_API())
-    {
-        printf_s("\nInit Error: 0x%X", r);
-        Show_Error_Msg(L"InitAPI failed!");
-        return r;
-    }
+    
 
     if (LoadConfig() == 0)
         return 0;
@@ -1037,10 +1071,10 @@ int main(/*int argc, char** argvA*/void)
             int state = MessageBoxW(NULL, L"Game has being running! \n游戏已在运行！\nYou can click Yes to auto close game or click Cancel to manually close. \n点击确定自动关闭游戏或手动关闭游戏后点取消\n", L"Error", 0x11);
             if (state == 1)
             {
-                HANDLE tempHandle = OpenProcess_Internal(PROCESS_TERMINATE, pid);
+                HANDLE tempHandle = OpenProcess_Internal(PROCESS_TERMINATE | SYNCHRONIZE, pid);
                 TerminateProcess(tempHandle, 0);
+                WaitForSingleObject(tempHandle, 2000);
                 CloseHandle(tempHandle);
-                Sleep(2000);
             }
             goto _wait_process_close;
         }
@@ -1051,8 +1085,8 @@ int main(/*int argc, char** argvA*/void)
     {
         Hksr_ui_Rva = Hksr_ENmobile_get_Rva(ProcessDir->c_str());
     }
-
-    LPVOID boot_info = malloc(sizeof(STARTUPINFOW) + sizeof(PROCESS_INFORMATION) + 0x20);
+    size_t bootsize = sizeof(STARTUPINFOW) + sizeof(PROCESS_INFORMATION) + 0x20;
+    LPVOID boot_info = malloc(bootsize);
     STARTUPINFOW* si = (STARTUPINFOW*)((uint8_t*)boot_info + sizeof(PROCESS_INFORMATION) + 0x8);
     PROCESS_INFORMATION* pi = (PROCESS_INFORMATION*)boot_info;
     if (!boot_info)
@@ -1060,7 +1094,7 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"Malloc failed!");
         return -1;
     }
-    memset(boot_info, 0, sizeof(STARTUPINFOW) + sizeof(PROCESS_INFORMATION) + 0x20);
+    memset(boot_info, 0, bootsize);
 
     if (!((CreateProcessW_pWin64)~(DWORD64)CreateProcessW_p)(ProcessPath->c_str(), (LPWSTR)((BYTE*)Command_arg + 0x10), NULL, NULL, FALSE, CREATE_SUSPENDED | GamePriorityClass, NULL, ProcessDir->c_str(), si, pi))
     {
@@ -1084,45 +1118,25 @@ int main(/*int argc, char** argvA*/void)
 
         if (isGenshin && is_old_version == 0)
         {
-            PCONTEXT temp = (PCONTEXT)malloc(sizeof(CONTEXT));
-            if (!temp)
-                return -1;
-            if (GetThreadContext(pi->hThread, temp))
-            {
-                DWORD64 TarPeb = temp->Rdx;
-                ReadProcessMemoryInternal(pi->hProcess, (void*)(TarPeb + 0x10), &Unityplayer_baseAddr, 0x8, 0);
-            }
-            free(temp);
-            if (Unityplayer_baseAddr)
-            {
-                if (ReadProcessMemoryInternal(pi->hProcess, (void*)Unityplayer_baseAddr, _mbase_PE_buffer, 0x1000, 0))
-                    goto __get_modpe_ok;
-            }
-            /*
-            if (GetRemoteModulePEinfo(pi->hProcess, procname->c_str(), _mbase_PE_buffer, &Unityplayer_baseAddr))
-            {
-                goto __get_modpe_ok;
-            }
-            */
+            Unityplayer_baseAddr = (uint64_t)RemoteDll_Inject(pi->hProcess, 0);
         }
         else
         {
             wstring EngPath = *ProcessDir;
             EngPath += L"\\UnityPlayer.dll";
             Unityplayer_baseAddr = (uintptr_t)RemoteDll_Inject(pi->hProcess, EngPath.c_str());
-            if (Unityplayer_baseAddr)
-            {
-                if(ReadProcessMemoryInternal(pi->hProcess, (void*)Unityplayer_baseAddr, _mbase_PE_buffer, 0x1000, 0))
-                    goto __get_modpe_ok;
-            }
         }
-        return -1;
 
-    __get_modpe_ok:
-        if (Unityplayer_baseAddr == 0)
-            return (int)-1;
+        if (Unityplayer_baseAddr)
+        {
+            if (!ReadProcessMemoryInternal(pi->hProcess, (void*)Unityplayer_baseAddr, _mbase_PE_buffer, 0x1000, 0))
+                return -1;
+        }
+        else return -1;
+
         if (Get_Section_info((uintptr_t)_mbase_PE_buffer, ".text", &Text_Vsize, &Text_Remote_RVA, Unityplayer_baseAddr))
             goto __Get_target_sec;
+
         Show_Error_Msg(L"Get Target Section Fail! (text)");
         VirtualFree_Internal(_mbase_PE_buffer, 0, MEM_RELEASE);
         CloseHandle(pi->hProcess);

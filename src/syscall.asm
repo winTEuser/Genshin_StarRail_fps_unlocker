@@ -18,14 +18,14 @@
 		push [rax]
 		mov [rax], ebp
 		lea rax, [rax+08h]
-		movaps xmm0, [rax+30h]
-		movaps [rsp+28h], xmm0
-		movaps xmm0, [rax+40h]
-		movaps [rsp+38h], xmm0
-		movaps xmm0, [rax+50h]
-		movaps [rsp+48h], xmm0
-		movaps xmm0, [rax+60h]
-		movaps [rsp+58h], xmm0
+		movups xmm0, [rax+30h]
+		movups [rsp+28h], xmm0
+		movups xmm0, [rax+40h]
+		movups [rsp+38h], xmm0
+		movups xmm0, [rax+50h]
+		movups [rsp+48h], xmm0
+		movups xmm0, [rax+60h]
+		movups [rsp+58h], xmm0
 		dd 408748h
 		db 44h
 		not rcx

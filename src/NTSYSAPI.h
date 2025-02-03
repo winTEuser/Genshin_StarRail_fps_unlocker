@@ -1027,11 +1027,11 @@ static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCAL
     *(DWORD64*)(spoofcallstart + 0x10) = 0x2404894808EC8348;
     *(DWORD64*)(spoofcallstart + 0x18) = 0xFFFFFEE024A48D48;
     *(DWORD64*)(spoofcallstart + 0x20) = 0x8408D48288930FF;
-    *(DWORD64*)(spoofcallstart + 0x28) = 0x2444290F3040280F;
-    *(DWORD64*)(spoofcallstart + 0x30) = 0x44290F4040280F28;
-    *(DWORD64*)(spoofcallstart + 0x38) = 0x290F5040280F3824;
-    *(DWORD64*)(spoofcallstart + 0x40) = 0xF6040280F482444;
-    *(DWORD64*)(spoofcallstart + 0x48) = 0x40874858244429;
+    *(DWORD64*)(spoofcallstart + 0x28) = 0x2444110F3040100F;
+    *(DWORD64*)(spoofcallstart + 0x30) = 0x44110F4040100F28;
+    *(DWORD64*)(spoofcallstart + 0x38) = 0x110F5040100F3824;
+    *(DWORD64*)(spoofcallstart + 0x40) = 0xF6040100F482444;
+    *(DWORD64*)(spoofcallstart + 0x48) = 0x40874858244411;
     *(DWORD64*)(spoofcallstart + 0x50) = 0xCCCCE1FFD1F74844;
 
     for(int i = 0; i != 0xC; i++)
