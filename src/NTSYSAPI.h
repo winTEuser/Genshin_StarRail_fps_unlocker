@@ -1678,7 +1678,6 @@ static __forceinline NTSTATUS init_NTAPI()
         {
             NtQuerySystemInformation = (_NtQuerySystemInformation_Win64)NtQSysInfo;
         }
-        goto __init_other;
     }
 
 __init_Internalcall:
