@@ -1000,7 +1000,23 @@ struct NTSYSCALL_SCNUMBER
 
 static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCALL_SCNUMBER* SCnum_struct)
 {
-    memset(buff, 0xCC, 0x2000);
+    __m128i m0 = _mm_set1_epi64x(0xCCCCCCCCCCCCCCCC);
+    m0 = _mm_unpacklo_epi64(m0, m0);
+    {
+        size_t i = 0;
+        while(i < 0x200)
+        {
+            _mm_storeu_si128((__m128i*)buff + i + 0, m0);
+            _mm_storeu_si128((__m128i*)buff + i + 1, m0);
+            _mm_storeu_si128((__m128i*)buff + i + 2, m0);
+            _mm_storeu_si128((__m128i*)buff + i + 3, m0);
+            _mm_storeu_si128((__m128i*)buff + i + 4, m0);
+            _mm_storeu_si128((__m128i*)buff + i + 5, m0);
+            _mm_storeu_si128((__m128i*)buff + i + 6, m0);
+            _mm_storeu_si128((__m128i*)buff + i + 7, m0);
+            i += 8;
+        }
+    }
     DWORD64 va = __rdtsc();
     DWORD vaAH = va >> 32;
     DWORD vaAL = va & 0xFFFFFFFF;
@@ -1718,13 +1734,16 @@ __init_Internalcall:
         }
 
         initcall.rcx = -1;
-        size_t i = 0x2000;
+        size_t i = 0x4000;
         DWORD old = 0;
-        LPVOID addr = 0;
+        DWORD64 addr = 0;
         NTSTATUS ret = ((_NtAllocateVirtualMemory_Win64)&asm_syscall)(&initcall, &addr, 0, &i, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
         if (!ret)
         {
-            init_syscall_buff(addr, Ntdelay, &SC_number);
+            *(DWORD64*)addr = addr;
+            addr += 0x2000;
+            i -= 0x2000;
+            init_syscall_buff((void*)addr, Ntdelay, &SC_number);
             initcall.scnumber = SC_number.sc_ProtectMem;
             ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)(&initcall, &addr, &i, 0x60000020, &old);
         }

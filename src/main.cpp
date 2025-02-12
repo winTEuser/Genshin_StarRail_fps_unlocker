@@ -532,8 +532,8 @@ _no_config:
         // PROCESS_QUERY_LIMITED_INFORMATION - 用于查询进程路经 (K32GetModuleFileNameExA)
         // SYNCHRONIZE - 用于等待进程结束 (WaitForSingleObject)
 
-        DWORD length = 0x2000;
-        wchar_t* szPath = (wchar_t*)malloc(length + 0x10);
+        DWORD length = 0x4000;
+        wchar_t* szPath = (wchar_t*)VirtualAlloc_Internal(0, length, PAGE_READWRITE);
         if(!szPath)
         {
             Show_Error_Msg(L"Alloc Memory failed! (Get game path)");
@@ -561,14 +561,14 @@ _no_config:
         DWORD ExitCode = STILL_ACTIVE;
         while (ExitCode == STILL_ACTIVE)
         {
+            // wait for the game to close then continue
             TerminateProcess(hProcess, 0);
-            Sleep(2000);
+            WaitForSingleObject(hProcess, 2000);
             GetExitCodeProcess(hProcess, &ExitCode);
         }
-
-        // wait for the game to close then continue
-        WaitForSingleObject(hProcess, (int) -1);
         CloseHandle(hProcess);
+
+        //clean screen
         {
             COORD pos = { 0, 8 };
             HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -657,18 +657,22 @@ __path_ok:
     return 1;
 }
 
+
+struct Boot_arg
+{
+    LPWSTR Game_Arg;
+    LPWSTR Path_Lib;
+};
 //[out] CommandLinew
 //The first 16 bytes are used by other arg
-static bool Init_Game_boot_arg(LPVOID Buffer)
+static bool Init_Game_boot_arg(Boot_arg* arg)
 {
-    if (!Buffer)
+    if (!arg)
     {
-        Show_Error_Msg(L"null ptr exception in init commandline");
         return 0;
     }
-    memset(Buffer, 0, 0x10);
     int argNum = 0;
-    LPWSTR* argvW = CommandLineToArgvW(::GetCommandLineW(), &argNum);
+    LPWSTR* argvW = CommandLineToArgvW(GetCommandLineW(), &argNum);
     std::wstring CommandLine{};
     if (argNum >= 2)
     {
@@ -730,7 +734,7 @@ static bool Init_Game_boot_arg(LPVOID Buffer)
                     *temparg = argvW[_game_argc_start];
                     LPVOID LibPath = malloc(temparg->size() * 2);
                     strncpy0((wchar_t*)LibPath, temparg->c_str(), temparg->size() * 2);
-                    *(LPVOID*)Buffer = LibPath;
+                    arg->Path_Lib = (LPWSTR)LibPath;
                     _game_argc_start++;
                 }
             }
@@ -759,7 +763,10 @@ static bool Init_Game_boot_arg(LPVOID Buffer)
             SetConsoleTitleA("This console control HKStarRailFPS");
         }
     }
-    strncpy0((wchar_t*)((BYTE*)Buffer + 0x10), CommandLine.c_str(), CommandLine.size() * 2);
+    arg->Game_Arg = (LPWSTR)malloc(0x2000);
+    if (!arg->Game_Arg)
+        return 0;
+    strncpy0((wchar_t*)((BYTE*)arg->Game_Arg), CommandLine.c_str(), CommandLine.size() * 2);
     return 1;
 }
 
@@ -941,11 +948,14 @@ __inject_proc:
                 HANDLE hThread = CreateThread_Internal(Tar_handle, 0, (LPTHREAD_START_ROUTINE)buffer, RCX);
                 if (hThread)
                 {
-                    WaitForSingleObject(hThread, 0xFFFFFFFF);
+                    if (DWORD dwre = WaitForSingleObject(hThread, 60000))
+                    {
+                        CloseHandle(hThread);
+                        return 0;
+                    }
                     ReadProcessMemoryInternal(Tar_handle, ((BYTE*)buffer) + 0x1000, &result, 0x8, 0);
                     CloseHandle(hThread);
                 }
-                
             }
         }
         VirtualFreeEx_Internal(Tar_handle, buffer, 0, MEM_RELEASE);
@@ -983,15 +993,18 @@ static void FullScreen()
 
 int main(/*int argc, char** argvA*/void)
 {
+    SetPriorityClass((HANDLE)-1, HIGH_PRIORITY_CLASS);
     setlocale(LC_CTYPE, "");
     FullScreen();
     SetConsoleTitleA("HoyoGameFPSunlocker");
-    SetPriorityClass((HANDLE)-1, REALTIME_PRIORITY_CLASS);
     _console_HWND = GetConsoleWindow();
     if (_console_HWND == NULL)
     {
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
+    
+    wprintf_s(L"FPS unlocker 2.8.4\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
+
     if (NTSTATUS r = init_API())
     {
         printf_s("\nInit Error: 0x%X", r);
@@ -999,22 +1012,9 @@ int main(/*int argc, char** argvA*/void)
         return r;
     }
 
-    wprintf_s(L"FPS unlocker 2.8.4\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
-
-    BYTE* Command_arg = (BYTE*)VirtualAlloc_Internal(0, 0x2000, PAGE_READWRITE);
-    LPWSTR LibPath = 0;
-    if (!Command_arg)
-    {
-        Show_Error_Msg(L"Malloc failed!");
-        return -1;
-    }
-
-    if (Init_Game_boot_arg(Command_arg) == 0)
+    Boot_arg barg{ 0 };
+    if (Init_Game_boot_arg(&barg) == 0)
         return 0; 
-
-    LibPath = *(LPWSTR*)Command_arg;
-
-    
 
     if (LoadConfig() == 0)
         return 0;
@@ -1042,25 +1042,6 @@ int main(/*int argc, char** argvA*/void)
 
     *ProcessDir = ProcessPath->substr(0, ProcessPath->find_last_of(L"\\"));
     *procname = ProcessPath->substr(ProcessPath->find_last_of(L"\\") + 1);
-    if(isGenshin)
-    {
-        DWORD lSize;
-        DWORD64 Size = 0;
-        HANDLE file_Handle = CreateFileW(ProcessPath->c_str(), GENERIC_ALL, NULL, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-        if (file_Handle != INVALID_HANDLE_VALUE)
-        {
-            lSize = GetFileSize(file_Handle, (LPDWORD)(&Size));
-            Size = (Size << 32) | lSize;
-            if (Size < 0x800000)
-                is_old_version = 1;
-            else is_old_version = 0;
-            CloseHandle(file_Handle);
-        }
-        else 
-        {
-            Show_Error_Msg(L"OpenFile Failed!");
-        }
-    }
     
     {
 
@@ -1077,6 +1058,26 @@ int main(/*int argc, char** argvA*/void)
                 CloseHandle(tempHandle);
             }
             goto _wait_process_close;
+        }
+    }
+
+    if (isGenshin)
+    {
+        DWORD lSize;
+        DWORD64 Size = 0;
+        HANDLE file_Handle = CreateFileW(ProcessPath->c_str(), GENERIC_ALL, NULL, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (file_Handle != INVALID_HANDLE_VALUE)
+        {
+            lSize = GetFileSize(file_Handle, (LPDWORD)(&Size));
+            Size = (Size << 32) | lSize;
+            if (Size < 0x800000)
+                is_old_version = 1;
+            else is_old_version = 0;
+            CloseHandle(file_Handle);
+        }
+        else
+        {
+            Show_Error_Msg(L"OpenFile Failed!");
         }
     }
     
@@ -1096,12 +1097,13 @@ int main(/*int argc, char** argvA*/void)
     }
     memset(boot_info, 0, bootsize);
 
-    if (!((CreateProcessW_pWin64)~(DWORD64)CreateProcessW_p)(ProcessPath->c_str(), (LPWSTR)((BYTE*)Command_arg + 0x10), NULL, NULL, FALSE, CREATE_SUSPENDED | GamePriorityClass, NULL, ProcessDir->c_str(), si, pi))
+    if (!((CreateProcessW_pWin64)~(DWORD64)CreateProcessW_p)(ProcessPath->c_str(), (barg.Game_Arg), NULL, NULL, FALSE, CREATE_SUSPENDED | GamePriorityClass, NULL, ProcessDir->c_str(), si, pi))
     {
         Show_Error_Msg(L"CreateProcess Fail!");
-        return (int)-1;
+        return 0;
     }
-    free(Command_arg);
+    free(barg.Game_Arg);
+
     //加载和获取模块信息
     LPVOID _mbase_PE_buffer = 0;
     uintptr_t Text_Remote_RVA = 0;
@@ -1112,6 +1114,7 @@ int main(/*int argc, char** argvA*/void)
         if (_mbase_PE_buffer == 0)
         {
             Show_Error_Msg(L"VirtualAlloc Failed! (PE_buffer)");
+            TerminateProcess(pi->hProcess, 0);
             CloseHandle(pi->hProcess);
             return (int)-1;
         }
@@ -1139,6 +1142,7 @@ int main(/*int argc, char** argvA*/void)
 
         Show_Error_Msg(L"Get Target Section Fail! (text)");
         VirtualFree_Internal(_mbase_PE_buffer, 0, MEM_RELEASE);
+        TerminateProcess(pi->hProcess, 0);
         CloseHandle(pi->hProcess);
         return -1;
     }
@@ -1149,33 +1153,56 @@ __Get_target_sec:
     if (Copy_Text_VA == NULL)
     {
         Show_Error_Msg(L"Malloc Failed! (text)");
+        TerminateProcess(pi->hProcess, 0);
         CloseHandle(pi->hProcess);
-        return (int)-1;
+        return 0;
     }
     // 把整个模块读出来
     if (ReadProcessMemoryInternal(pi->hProcess, (void*)Text_Remote_RVA, Copy_Text_VA, Text_Vsize, 0) == 0)
     {
         Show_Error_Msg(L"Readmem Fail ! (text)");
         VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
+        TerminateProcess(pi->hProcess, 0);
         CloseHandle(pi->hProcess);
-        return (int)-1;
+        return 0;
     }
    
-    //starrail fps 66 0F 6E 05 ?? ?? ?? ?? F2 0F 10 3D ?? ?? ?? ?? 0F 5B C0
+    //starrail 
+    //66 0F 6E 05 ?? ?? ?? ?? F2 0F 10 3D ?? ?? ?? ?? 0F 5B C0
     // 
     //7F 0F 8B 05 ?? ?? ?? ?? 66 0F 6E C8 
     // 
     //7F 0E E8 ? ? ? ? 66 0F 6E C8 0F 5B C9
     //
+    //7E 0C E8 ?? ?? ?? ?? 66 0F 6E C8 0F 5B C9 
+    // 
     // 计算相对地址 (FPS)
-    //
-    //zzz//7F 0D 66 0F 6E 0D ?? ?? ?? ?? 0F 5B C9
 
-    uintptr_t pfps = 0;      //normal_fps_ptr
+    uintptr_t pfps = 0;
     uintptr_t address = 0;
     if (isGenshin)
     {
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "7F 0E E8 ?? ?? ?? ?? 66 0F 6E C8"); // ver 3.7 - last 
+        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "7E 0C E8 ?? ?? ?? ?? 66 0F 6E C8 0F 5B C9");
+        if (address)
+        {
+            int64_t rip = address;
+            rip += 3;
+            rip += *(int32_t*)(rip)+6;
+            rip += *(int32_t*)(rip)+4;
+            pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            goto __genshin_il;
+        }
+        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "8B DF E8 ?? ?? ?? ?? 0F 57 C0 0F 29 74 24 30 66 0F 6E C8 0F 5B C9");
+        if (address)
+        {
+            int64_t rip = address;
+            rip += 3;
+            rip += *(int32_t*)(rip)+6;
+            rip += *(int32_t*)(rip)+4;
+            pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            goto __genshin_il;
+        }
+        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "7F 0E E8 ?? ?? ?? ?? 66 0F 6E C8"); // ver 3.7 - 5.3 
         if (address)
         {
             int64_t rip = address;
@@ -1195,9 +1222,10 @@ __Get_target_sec:
             goto __genshin_il;
         }
         Show_Error_Msg(L"Genshin Pattern Outdated!\nPlase wait new update in github.\n\n");
-        CloseHandle(pi->hProcess);
         VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
-        return (int)-1;
+        TerminateProcess(pi->hProcess, 0);
+        CloseHandle(pi->hProcess);
+        return 0;
     }
     else
     {
@@ -1231,9 +1259,10 @@ __Get_target_sec:
             goto __Continue;
         }
         Show_Error_Msg(L"StarRail Pattern Outdated!\nPlase wait new update in github.\n\n");
-        CloseHandle(pi->hProcess);
         VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
-        return (int)-1;
+        TerminateProcess(pi->hProcess, 0);
+        CloseHandle(pi->hProcess);
+        return 0;
     }
     //-------------------------------------------------------------------------------------------------------------------------------------------------//
 
@@ -1243,7 +1272,7 @@ __genshin_il:
         if (is_old_version)
         {
             wstring il2cppPath = *ProcessDir;
-            il2cppPath += L"YuanShen_Data\\Native\\Data\\etc\\UserAssembly.dll";
+            il2cppPath += L"\\YuanShen_Data\\Native\\UserAssembly.dll";
             UA_baseAddr = (uintptr_t)RemoteDll_Inject(pi->hProcess, il2cppPath.c_str());
             if (UA_baseAddr)
             {
@@ -1293,23 +1322,27 @@ __Continue:
     if (!Patch_buffer)
     {
         Show_Error_Msg(L"Inject Fail !\n");
-        return -1;
+        TerminateProcess(pi->hProcess, 0);
+        CloseHandle(pi->hProcess);
+        return 0;
     }
     _G_shellcode_buffer = (BYTE*)Patch_buffer;
 
-    if (LibPath)
+    if (barg.Path_Lib)
     {
-        HMODULE mod = RemoteDll_Inject(pi->hProcess, LibPath);
+        wprintf_s(L"You may be banned for using this feature. Make sure you had checked the source and credibility of the plugin.\n\n");
+        HMODULE mod = RemoteDll_Inject(pi->hProcess, barg.Path_Lib);
         if (!mod)
         {
             Show_Error_Msg(L"Dll Inject Fail !\n");
         }
-        free(LibPath);
+        free(barg.Path_Lib);
     }
     
     DelWstring(&ProcessPath);
     DelWstring(&ProcessDir);
     DelWstring(&procname);
+
     VirtualFree_Internal(_mbase_PE_buffer, 0, MEM_RELEASE);
     VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
     
