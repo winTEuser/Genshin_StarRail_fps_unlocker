@@ -889,18 +889,9 @@ static DWORD Hksr_ENmobile_get_Rva(LPCWSTR GPath)
 //when DllPath is null return base img addr
 static HMODULE RemoteDll_Inject(HANDLE Tar_handle, LPCWSTR DllPath)
 {
-    DWORD64 API = (DWORD64)&LoadLibraryW;
     size_t Pathsize = 0x2000;
     size_t strlen = 0;
-    if (!DllPath)
-    {
-        API = (DWORD64)&GetModuleHandleW;
-        if (API)
-        {
-            goto __inject_proc;
-        }
-    }
-    else
+    if (DllPath)
     {
         while (1)
         {
@@ -923,14 +914,27 @@ static HMODULE RemoteDll_Inject(HANDLE Tar_handle, LPCWSTR DllPath)
         }
         return 0;
     }
-    return 0;
 
 __inject_proc:
     LPVOID buffer = VirtualAllocEx_Internal(Tar_handle, NULL, Pathsize, PAGE_READWRITE);
     if (buffer)
     {
         HMODULE result = 0;
-        DWORD64 payload[4] = { 0xB848C03138EC8348 , API, 0xFE605894890D0FF ,0xCCC338C483480000 };
+        DWORD64 payload[4] = { 0 };
+        if (!DllPath)
+        {
+            payload[0] = 0x5848606A38EC8348;
+            payload[1] = 0x10408B48008B4865;
+            payload[2] = 0xFE805894844;
+            payload[3] = 0xCCCCCCC338C48348;
+        }
+        else
+        {
+            payload[0] = 0xB848C03138EC8348;
+            payload[1] = (DWORD64)&LoadLibraryW;
+            payload[2] = 0xFE605894890D0FF;
+            payload[3] = 0xCCC338C483480000;
+        }
         if (WriteProcessMemoryInternal(Tar_handle, buffer, &payload, 0x20, 0))
         {
             if (VirtualProtect_Internal(Tar_handle, buffer, 0x1000, PAGE_EXECUTE_READ, 0))
@@ -950,6 +954,7 @@ __inject_proc:
                 {
                     if (DWORD dwre = WaitForSingleObject(hThread, 60000))
                     {
+                        Show_Error_Msg(L"Dll load Wait Time out!");
                         CloseHandle(hThread);
                         return 0;
                     }
@@ -1019,14 +1024,11 @@ int main(/*int argc, char** argvA*/void)
     if (LoadConfig() == 0)
         return 0;
 
-    if (GamePath.length() < 8)
-        return -1;
-
     _G_shellcode_buffer = init_shellcode();
     if (!_G_shellcode_buffer)
     {
         Show_Error_Msg(L"initcode failed!");
-        return -1;
+        return 0;
     }
 
     wstring* ProcessPath = NewWstring(GamePath.size() + 1);
@@ -1116,7 +1118,7 @@ int main(/*int argc, char** argvA*/void)
             Show_Error_Msg(L"VirtualAlloc Failed! (PE_buffer)");
             TerminateProcess(pi->hProcess, 0);
             CloseHandle(pi->hProcess);
-            return (int)-1;
+            return 0;
         }
 
         if (isGenshin && is_old_version == 0)
@@ -1132,19 +1134,18 @@ int main(/*int argc, char** argvA*/void)
 
         if (Unityplayer_baseAddr)
         {
-            if (!ReadProcessMemoryInternal(pi->hProcess, (void*)Unityplayer_baseAddr, _mbase_PE_buffer, 0x1000, 0))
-                return -1;
+            if (ReadProcessMemoryInternal(pi->hProcess, (void*)Unityplayer_baseAddr, _mbase_PE_buffer, 0x1000, 0))
+            {
+                if (Get_Section_info((uintptr_t)_mbase_PE_buffer, ".text", &Text_Vsize, &Text_Remote_RVA, Unityplayer_baseAddr))
+                    goto __Get_target_sec;
+            }
         }
-        else return -1;
-
-        if (Get_Section_info((uintptr_t)_mbase_PE_buffer, ".text", &Text_Vsize, &Text_Remote_RVA, Unityplayer_baseAddr))
-            goto __Get_target_sec;
-
+        
         Show_Error_Msg(L"Get Target Section Fail! (text)");
         VirtualFree_Internal(_mbase_PE_buffer, 0, MEM_RELEASE);
         TerminateProcess(pi->hProcess, 0);
         CloseHandle(pi->hProcess);
-        return -1;
+        return 0;
     }
 
 __Get_target_sec:

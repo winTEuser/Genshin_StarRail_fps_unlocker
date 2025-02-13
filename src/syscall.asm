@@ -38,8 +38,9 @@
 
 	ALIGN 16
 	callreturn:
-		lea rsp, [rsp-0100h]
-		lea rsp, [rsp+0220h]
+		lea rsp, [rsp-01000h]
+		lea rsp, [rsp-01000h]
+		lea rsp, [rsp+02120h]
 		xchg [rsp], rax
 		xchg rsp, rax
 		mov rbp, [rax+08h]
