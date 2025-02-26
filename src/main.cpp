@@ -13,12 +13,12 @@
 #include <string>
 #include <locale.h>
 #include <intrin.h>
+#include "NTSYSAPI.h"
 
 #include <Windows.h>
 #include <TlHelp32.h>
 
 #include "fastmemcp.h"
-#include "NTSYSAPI.h"
 #include "inireader.h"
 
 
@@ -233,38 +233,6 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
 
 
 
-static BYTE* init_shellcode()
-{
-    uintptr_t _shellcode_buffer = (uintptr_t)VirtualAlloc_Internal(0, 0x1000, PAGE_READWRITE);
-    if (_shellcode_buffer == 0)
-    {
-        return 0;
-    }
-    memcpy_mm((void*)_shellcode_buffer, &_shellcode_Const, sizeof(_shellcode_Const));
-
-    *(uint32_t*)_shellcode_buffer = GetCurrentProcessId();       //unlocker PID
-    {
-        char str_openproc[16] = { 0 };
-        *(DWORD64*)(&str_openproc) = 0x9C908DAF919A8FB0;
-        *(DWORD64*)(&str_openproc[8]) = 0x3FCA87DAFF8C8C9A;
-        decbyte(str_openproc, 2);
-        *(uint64_t*)(_shellcode_buffer + 0x40) = (uint64_t)GetProcAddress_Internal((HMODULE)~Kernel32_ADDR, str_openproc);
-    }
-    {
-        char str_readprocmem[24] = { 0 };
-        *(DWORD64*)(&str_readprocmem) = 0x9C908DAF9B9E9AAD;
-        *(DWORD64*)(&str_readprocmem[8]) = 0x8D90929AB28C8C9A;
-        decbyte(str_readprocmem, 2);
-        *(DWORD*)(&str_readprocmem[16]) = 0x79;
-        *(uint64_t*)(_shellcode_buffer + 0x48) = (uint64_t)GetProcAddress_Internal((HMODULE)~Kernel32_ADDR, str_readprocmem);
-    }
-    *(uint64_t*)(_shellcode_buffer + 0x50) = (uint64_t)(&Sleep);
-    *(uint64_t*)(_shellcode_buffer + 0x58) = (uint64_t)(&LoadLibraryA);
-    *(uint64_t*)(_shellcode_buffer + 0x60) = (uint64_t)(&MessageBoxA);
-    *(uint64_t*)(_shellcode_buffer + 0x68) = (uint64_t)(&CloseHandle);
-    return (BYTE*)_shellcode_buffer;
-}
-
 // 特征搜索
 static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, const char* signature)
 {
@@ -305,9 +273,8 @@ static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, c
                 break;
             }
         }
-        if (found) {
+        if (found) 
             return (uintptr_t)&scanBytes[i];
-        }
     }
     return 0;
 }
@@ -331,13 +298,27 @@ static void Show_Error_Msg(LPCWSTR Prompt_str)
     if (Error_code == ERROR_SUCCESS)
         Error_code = ERROR_INVALID_DATA;
     wstring message{};
+    wstring title{};
     if (Prompt_str)
         message = Prompt_str;
     else
         message = L"Default Error Message";
     message += L"\n" + GetLastErrorAsString(Error_code);
-    MessageBoxW(_console_HWND, message.c_str(), L"An Error has occurred!", 0x10);
-    return;
+    UNICODE_STRING message_str;
+    UNICODE_STRING title_str;
+    {
+        wchar_t cwstr[0x1000];
+        PEB64* peb = (PEB64*)__readgsqword(0x60);
+        HMODULE self = (HMODULE)peb->ImageBaseAddress;
+        GetModuleFileNameW(self, cwstr, 0x800);
+        title = cwstr;
+        title = title.substr(title.find_last_of(L"\\") + 1);
+    }
+    InitUnicodeString(&message_str, (PCWSTR)message.c_str());
+    InitUnicodeString(&title_str, (PCWSTR)title.c_str());
+    ULONG_PTR params[4] = { (ULONG_PTR)&message_str, (ULONG_PTR)&title_str, ((ULONG)ResponseButtonOK | IconError), INFINITE };
+    DWORD response;
+    NtRaiseHardError(STATUS_SERVICE_NOTIFICATION | HARDERROR_OVERRIDE_ERRORMODE, 4, 3, params, 0, &response);
 }
 
 //create pwstr 1 len = 2 byte
@@ -381,6 +362,53 @@ static INLINE void DelWstring(wstring** pwstr)
     free(*pwstr);
     *pwstr = 0;
     return;
+}
+
+
+static BYTE* init_shellcode()
+{
+    uintptr_t _shellcode_buffer = (uintptr_t)VirtualAlloc_Internal(0, 0x1000, PAGE_READWRITE);
+    if (_shellcode_buffer == 0)
+    {
+        return 0;
+    }
+    memcpy_mm((void*)_shellcode_buffer, &_shellcode_Const, sizeof(_shellcode_Const));
+
+    *(uint32_t*)_shellcode_buffer = GetCurrentProcessId();       //unlocker PID
+    {
+        char str_openproc[16] = { 0 };
+        *(DWORD64*)(&str_openproc) = 0x9C908DAF919A8FB0;
+        *(DWORD64*)(&str_openproc[8]) = 0x3FCA87DAFF8C8C9A;
+        decbyte(str_openproc, 2);
+        uint64_t p_openproc = (uint64_t)GetProcAddress_Internal((HMODULE)~Kernel32_ADDR, str_openproc);
+        if (!p_openproc)
+        {
+            Show_Error_Msg(L"Bad Function (Openprocess)");
+            VirtualFree_Internal((void*)_shellcode_buffer, 0, MEM_RELEASE);
+            return 0;
+        }
+        *(uint64_t*)(_shellcode_buffer + 0x40) = p_openproc;
+    }
+    {
+        char str_readprocmem[24] = { 0 };
+        *(DWORD64*)(&str_readprocmem) = 0x9C908DAF9B9E9AAD;
+        *(DWORD64*)(&str_readprocmem[8]) = 0x8D90929AB28C8C9A;
+        decbyte(str_readprocmem, 2);
+        *(DWORD*)(&str_readprocmem[16]) = 0x79;
+        uint64_t p_readmem = (uint64_t)GetProcAddress_Internal((HMODULE)~Kernel32_ADDR, str_readprocmem);
+        if (!p_readmem)
+        {
+            Show_Error_Msg(L"Bad Function (ReadProcMem)");
+            VirtualFree_Internal((void*)_shellcode_buffer, 0, MEM_RELEASE);
+            return 0;
+        }
+        *(uint64_t*)(_shellcode_buffer + 0x48) = p_readmem;
+    }
+    *(uint64_t*)(_shellcode_buffer + 0x50) = (uint64_t)(&Sleep);
+    *(uint64_t*)(_shellcode_buffer + 0x58) = (uint64_t)(&LoadLibraryA);
+    *(uint64_t*)(_shellcode_buffer + 0x60) = (uint64_t)(&MessageBoxA);
+    *(uint64_t*)(_shellcode_buffer + 0x68) = (uint64_t)(&CloseHandle);
+    return (BYTE*)_shellcode_buffer;
 }
 
 //[in],[in],[out],[out],[in]
@@ -519,7 +547,7 @@ _no_config:
                 if (pid = GetPID(L"StarRail.exe"))
                     break;
             }
-            Sleep(200);
+            NtSleep(200);
         }
         HANDLE hProcess = OpenProcess_Internal(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE | PROCESS_TERMINATE, pid);
         if (!hProcess)
@@ -562,7 +590,7 @@ _no_config:
         while (ExitCode == STILL_ACTIVE)
         {
             // wait for the game to close then continue
-            TerminateProcess(hProcess, 0);
+            TerminateProcess_Internal(hProcess, 0);
             WaitForSingleObject(hProcess, 2000);
             GetExitCodeProcess(hProcess, &ExitCode);
         }
@@ -676,7 +704,7 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
     std::wstring CommandLine{};
     if (argNum >= 2)
     {
-        int _game_argc_start = 0;
+        int _game_argc_start = 2;
         wchar_t boot_genshin[] = L"-genshin";
         wchar_t boot_starrail[] = L"-hksr";
         wchar_t loadLib[] = L"-loadlib";
@@ -695,10 +723,9 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
                 if (*temparg == Use_Mobile_UI)
                 {
                     Use_mobile_UI = 1;
-                    CommandLine += L"use_mobile_platform -is_cloud 1 -platform_type CLOUD_THIRD_PARTY_MOBILE";
+                    CommandLine += L"use_mobile_platform -is_cloud 1 -platform_type CLOUD_THIRD_PARTY_MOBILE ";
                     _game_argc_start = 3;
                 }
-                else { _game_argc_start = 2; }
             }
         }
         else if (*temparg == boot_starrail)
@@ -714,12 +741,11 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
                     Use_mobile_UI = 1;
                     _game_argc_start = 3;
                 }
-                else { _game_argc_start = 2; }
             }
         }
         else
         {
-            MessageBoxW(_console_HWND, L"参数错误 \nArguments error ( unlocker.exe -[game] -[game argv] ..... ) \n", L"Tip", 0x10);
+            Show_Error_Msg(L"参数错误 \nArguments error ( unlocker.exe -[game] -[game argv] ..... ) \n");
             return 0;
         }
         if (argNum > _game_argc_start)
@@ -766,6 +792,7 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
     arg->Game_Arg = (LPWSTR)malloc(0x2000);
     if (!arg->Game_Arg)
         return 0;
+    *(uint64_t*)arg->Game_Arg = 0;
     strncpy0((wchar_t*)((BYTE*)arg->Game_Arg), CommandLine.c_str(), CommandLine.size() * 2);
     return 1;
 }
@@ -801,7 +828,7 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t para, uintptr_t _ptr_f
         {
             if(VirtualProtect_Internal(Tar_handle, __Tar_proc_buffer, 0x1000, PAGE_EXECUTE_READ, 0))
             {
-                HANDLE temp = CreateThread_Internal(Tar_handle, 0, (LPTHREAD_START_ROUTINE)((uint64_t)__Tar_proc_buffer + sc_entryVA), NULL);
+                HANDLE temp = CreateRemoteThreadEx_Internal(Tar_handle, 0, (LPTHREAD_START_ROUTINE)((uint64_t)__Tar_proc_buffer + sc_entryVA), NULL);
                 if (!temp)
                 {
                     goto __proc_failed;
@@ -949,10 +976,10 @@ __inject_proc:
                     }
                     RCX = ((BYTE*)buffer) + 0x1000;
                 }
-                HANDLE hThread = CreateThread_Internal(Tar_handle, 0, (LPTHREAD_START_ROUTINE)buffer, RCX);
+                HANDLE hThread = CreateRemoteThreadEx_Internal(Tar_handle, 0, (LPTHREAD_START_ROUTINE)buffer, RCX);
                 if (hThread)
                 {
-                    if (DWORD dwre = WaitForSingleObject(hThread, 60000))
+                    if (WaitForSingleObject(hThread, 60000))
                     {
                         Show_Error_Msg(L"Dll load Wait Time out!");
                         CloseHandle(hThread);
@@ -974,7 +1001,7 @@ static DWORD __stdcall Thread_display(LPVOID null)
 {
     while (1)
     {
-        Sleep(100);
+        NtSleep(100);
         if (Process_endstate)
             break;
         printf_s("\rFPS: %d - %s    %s", FpsValue, FpsValue < 30 ? "Low power state" : "Normal state   ", "  Press END key stop change  ");
@@ -1008,16 +1035,14 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
     
-    wprintf_s(L"FPS unlocker 2.8.4\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
+    wprintf_s(L"FPS unlocker 2.8.5\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
 
     if (NTSTATUS r = init_API())
     {
-        printf_s("\nInit Error: 0x%X", r);
-        Show_Error_Msg(L"InitAPI failed!");
         return r;
     }
 
-    Boot_arg barg{ 0 };
+    Boot_arg barg{};
     if (Init_Game_boot_arg(&barg) == 0)
         return 0; 
 
@@ -1046,7 +1071,10 @@ int main(/*int argc, char** argvA*/void)
     *procname = ProcessPath->substr(ProcessPath->find_last_of(L"\\") + 1);
     
     {
-
+        __nop();
+        __nop();
+        __nop();
+        __nop();
     _wait_process_close:
         DWORD pid = GetPID(procname->c_str());
         if (pid)
@@ -1055,7 +1083,7 @@ int main(/*int argc, char** argvA*/void)
             if (state == 1)
             {
                 HANDLE tempHandle = OpenProcess_Internal(PROCESS_TERMINATE | SYNCHRONIZE, pid);
-                TerminateProcess(tempHandle, 0);
+                TerminateProcess_Internal(tempHandle, 0);
                 WaitForSingleObject(tempHandle, 2000);
                 CloseHandle(tempHandle);
             }
@@ -1116,7 +1144,7 @@ int main(/*int argc, char** argvA*/void)
         if (_mbase_PE_buffer == 0)
         {
             Show_Error_Msg(L"VirtualAlloc Failed! (PE_buffer)");
-            TerminateProcess(pi->hProcess, 0);
+            TerminateProcess_Internal(pi->hProcess, 0);
             CloseHandle(pi->hProcess);
             return 0;
         }
@@ -1143,7 +1171,7 @@ int main(/*int argc, char** argvA*/void)
         
         Show_Error_Msg(L"Get Target Section Fail! (text)");
         VirtualFree_Internal(_mbase_PE_buffer, 0, MEM_RELEASE);
-        TerminateProcess(pi->hProcess, 0);
+        TerminateProcess_Internal(pi->hProcess, 0);
         CloseHandle(pi->hProcess);
         return 0;
     }
@@ -1154,7 +1182,7 @@ __Get_target_sec:
     if (Copy_Text_VA == NULL)
     {
         Show_Error_Msg(L"Malloc Failed! (text)");
-        TerminateProcess(pi->hProcess, 0);
+        TerminateProcess_Internal(pi->hProcess, 0);
         CloseHandle(pi->hProcess);
         return 0;
     }
@@ -1163,7 +1191,7 @@ __Get_target_sec:
     {
         Show_Error_Msg(L"Readmem Fail ! (text)");
         VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
-        TerminateProcess(pi->hProcess, 0);
+        TerminateProcess_Internal(pi->hProcess, 0);
         CloseHandle(pi->hProcess);
         return 0;
     }
@@ -1224,7 +1252,7 @@ __Get_target_sec:
         }
         Show_Error_Msg(L"Genshin Pattern Outdated!\nPlase wait new update in github.\n\n");
         VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
-        TerminateProcess(pi->hProcess, 0);
+        TerminateProcess_Internal(pi->hProcess, 0);
         CloseHandle(pi->hProcess);
         return 0;
     }
@@ -1261,7 +1289,7 @@ __Get_target_sec:
         }
         Show_Error_Msg(L"StarRail Pattern Outdated!\nPlase wait new update in github.\n\n");
         VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
-        TerminateProcess(pi->hProcess, 0);
+        TerminateProcess_Internal(pi->hProcess, 0);
         CloseHandle(pi->hProcess);
         return 0;
     }
@@ -1323,7 +1351,7 @@ __Continue:
     if (!Patch_buffer)
     {
         Show_Error_Msg(L"Inject Fail !\n");
-        TerminateProcess(pi->hProcess, 0);
+        TerminateProcess_Internal(pi->hProcess, 0);
         CloseHandle(pi->hProcess);
         return 0;
     }
@@ -1355,7 +1383,7 @@ __Continue:
     wprintf_s(L"PID: %d\n \nDone! \n \nUse Right Ctrl Key with ↑↓←→ key to change fps limted\n使用键盘上的右Ctrl键和方向键调节帧率限制\n\n\n  Rctrl + ↑ : +20\n  Rctrl + ↓ : -20\n  Rctrl + ← : -2\n  Rctrl + → : +2\n\n", pi->dwProcessId);
     
     // 创建printf线程
-    HANDLE hdisplay = CreateThread_Internal((HANDLE) - 1, 0, Thread_display, 0);
+    HANDLE hdisplay = CreateRemoteThreadEx_Internal((HANDLE) - 1, 0, Thread_display, 0);
     if (!hdisplay)
         Show_Error_Msg(L"Create Thread <Thread_display> Error! ");
 
@@ -1364,7 +1392,7 @@ __Continue:
     uint32_t cycle_counter = 0;
     while (1)   // handle key input
     {
-        Sleep(50);
+        NtSleep(50);
         cycle_counter++;
         GetExitCodeProcess(pi->hProcess, &dwExitCode);
         if (dwExitCode != STILL_ACTIVE)
