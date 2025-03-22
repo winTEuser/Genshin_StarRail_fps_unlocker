@@ -29,9 +29,6 @@
 using namespace std;
 
 
-
-BYTE* _G_shellcode_buffer = 0;
-
 wstring HKSRGamePath{};
 wstring GenGamePath{};
 wstring GamePath{};
@@ -55,15 +52,15 @@ const uint32_t sc_entryVA = 0x1C0;
 const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
 {
     0x00, 0x00, 0x00, 0x00,                              //uint32_t unlocker_pid              _shellcode_[0]
-    0x20, 0xDF, 0x2F, 0x67,                              //uint32_t timestamp                 _shellcode_[4]
+    0xC0, 0x35, 0xDE, 0x67,                              //uint32_t timestamp                 _shellcode_[4]
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t unlocker_FpsValue_addr    _shellcode_[8]
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t Ptr_il2cpp_fps            _shellcode_[0x10]
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t Ptr_Engine_fps            _shellcode_[0x18]
     0x00, 0x00, 0x00, 0x00,                              //uint32_t hksr_ui_rva               _shellcode_[0x20]
     0x00, 0x00, 0x00, 0x00,                              //uint32_t hksr_ui_type              _shellcode_[0x24]
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t NULL                      _shellcode_[0x28]
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t NULL                      _shellcode_[0x30]
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t Ptr_Function_link         _shellcode_[0x38]
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t Ptr_Function_link         _shellcode_[0x30]
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t API_MemProtect            _shellcode_[0x38]
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t API_OpenProcess           _shellcode_[0x40]
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t API_ReadProcessmem        _shellcode_[0x48]
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t API_Sleep                 _shellcode_[0x50]
@@ -130,7 +127,7 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
     //Write                                              
     0x44, 0x48, 0x8B, 0x05, 0xD8, 0xFE, 0xFF, 0xFF,      //mov rax, qword ptr ds:[engine_fps]
     0x89, 0x08,                                          //mov dword ptr ds:[rax], ecx  
-    0x44, 0x48, 0x8B, 0x05, 0xEE, 0xFE, 0xFF, 0xFF,      //mov rax, qword ptr ds:[Ptr_Function_link]
+    0x44, 0x48, 0x8B, 0x05, 0xE6, 0xFE, 0xFF, 0xFF,      //mov rax, qword ptr ds:[Ptr_Function_link]
     0x48, 0x85, 0xC0,                                    //test rax, rax 
     0x75, 0x01,                                          //jnz callproc
     0xC3,                                                //ret
@@ -221,11 +218,12 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
     //int3 
     0xCC,
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
-    'G', 'a', 'm', 'e', 'A', 's', 's', 'e', 'm', 'b', 'l', 'y', '.', 'd', 'l', 'l', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    'G', 'a', 'm', 'e', 'A', 's', 's', 'e', 'm', 'b', 'l', 'y', '.', 'd', 'l', 'l', 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
-    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
-    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
-    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+    0x48, 0x83, 0xEC, 0x38, 0x4C, 0x8D, 0x0C, 0x24, 0x41, 0xB8, 0x20, 0x00, 0x00, 0x00, 0xBA, 0x00,
+    0x10, 0x00, 0x00, 0x48, 0x81, 0xE1, 0x00, 0xF0, 0xFF, 0xFF, 0x49, 0x83, 0xC1, 0x28, 0xFF, 0x15,
+    0x74, 0xFD, 0xFF, 0xFF, 0x48, 0x83, 0xC4, 0x38, 0xC3, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
@@ -723,7 +721,7 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
                 if (*temparg == Use_Mobile_UI)
                 {
                     Use_mobile_UI = 1;
-                    CommandLine += L"use_mobile_platform -is_cloud 1 -platform_type CLOUD_THIRD_PARTY_MOBILE ";
+                    //CommandLine += L"use_mobile_platform -is_cloud 1 -platform_type CLOUD_THIRD_PARTY_MOBILE ";
                     _game_argc_start = 3;
                 }
             }
@@ -797,18 +795,31 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
     return 1;
 }
 
+
+struct inject_arg
+{
+    uint64_t arg1;//GI fpsptr
+    uint64_t arg2;//HKSR uiva
+    uint64_t arg3;//GI platform_sign
+    uint64_t arg4;//GI hook_func
+};
 // Hotpatch
-static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t para, uintptr_t _ptr_fps,  DWORD Ptr_Rva)
+static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* arg)
 {
     if (!_ptr_fps)
         return 0;
 
-    BYTE* _sc_buffer = _G_shellcode_buffer;
+    BYTE* _sc_buffer = init_shellcode();
+    if (!_sc_buffer)
+    {
+        Show_Error_Msg(L"initcode failed!");
+        return 0;
+    }
 
     //genshin_get_gameset
     if (isGenshin && isHook)
     {
-        *(uint64_t*)(_sc_buffer + 0x10) = para;
+        *(uint64_t*)(_sc_buffer + 0x10) = arg->arg1;
     }
 
     //shellcode patch
@@ -818,13 +829,69 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t para, uintptr_t _ptr_f
     LPVOID __Tar_proc_buffer = VirtualAllocEx_Internal(Tar_handle, NULL, 0x1000, PAGE_READWRITE);
     if (__Tar_proc_buffer)
     {
-        if (Ptr_Rva)
+        if (arg->arg2)
         {
-            *(uint32_t*)(_sc_buffer + 0x20) = Ptr_Rva;
+            *(uint32_t*)(_sc_buffer + 0x20) = arg->arg2;
             *(uint32_t*)(_sc_buffer + 0x24) = Tar_Device;
-            *(uint64_t*)(_sc_buffer + 0x38) = (uint64_t)__Tar_proc_buffer + 0x1F0;
+            *(uint64_t*)(_sc_buffer + 0x30) = (uint64_t)__Tar_proc_buffer + 0x1F0;
         }
-        if (WriteProcessMemoryInternal(Tar_handle, __Tar_proc_buffer, (void*)_sc_buffer, sizeof(_shellcode_Const), 0))
+        if (isGenshin && Use_mobile_UI)
+        {
+            if (
+                VirtualProtect_Internal(Tar_handle, (void*)arg->arg3, 0x1000, 0x40, 0)
+                &&
+                VirtualProtect_Internal(Tar_handle, (void*)arg->arg4, 0x1000, 0x40, 0))
+            {
+                {
+                    char str_memprotect[16] = { 0 };
+                    *(DWORD64*)(&str_memprotect) = 0xAF939E8A8B8D96A9;
+                    *(DWORD64*)(&str_memprotect[8]) = 0x8EFF8B9C9A8B908D;
+                    decbyte(str_memprotect, 2);
+                    uint64_t API_memprotect = (uint64_t)GetProcAddress_Internal((HMODULE)~Kernel32_ADDR, str_memprotect);
+                    if (!API_memprotect)
+                    {
+                        Show_Error_Msg(L"Fail getFunction (memprotect)");
+                        goto __exit_block;
+                    }
+                    *(uint64_t*)(_sc_buffer + 0x38) = API_memprotect;
+                }
+                {
+                    uint64_t ui_payload[] = {
+                    0x78EC834857565553, 0x0000009024AC8D48, 0x00000048358B4848, 0x000000481D8B4840,
+                    0x00000048056F0FF3, 0xE8D98948037F0FF3, 0x004D8B48FFFFFF6C, 0x000206C79348D3FF,
+                    0xFF56E8F189480000, 0x5E5F78C48348FFFF, 0xCCCCCCCCCCC35B5D, 0 };
+                    memcpy((_sc_buffer + 0x300), &ui_payload, sizeof(ui_payload));
+                    *(uint64_t*)(_sc_buffer + 0x300 + sizeof(ui_payload)) = arg->arg3;//p_platform_
+                    *(uint64_t*)(_sc_buffer + 0x300 + sizeof(ui_payload) + 8) = arg->arg4;//func
+                    if (!ReadProcessMemoryInternal(Tar_handle, (void*)arg->arg4, (_sc_buffer + 0x300 + sizeof(ui_payload) + 0x10), 0x10, 0))
+                    {
+                        Show_Error_Msg(L"Failed hook (GIui)");
+                        goto __exit_block;
+                    }
+                }
+                {
+                    uint64_t ui_payload1[] = { 0x225FF, (uint64_t)((uint64_t)__Tar_proc_buffer + 0x300) };
+                    if (!WriteProcessMemoryInternal(Tar_handle, (void*)arg->arg4, &ui_payload1, 0x10, 0))
+                    {
+                        Show_Error_Msg(L"Failed hook (GIui)");
+                        goto __exit_block;
+                    }
+                }
+                uint32_t platform_var = 0xB;
+                if (!WriteProcessMemoryInternal(Tar_handle, (void*)arg->arg3, &platform_var, 4, 0))
+                {
+                    Show_Error_Msg(L"Failed hook (GIui)");
+                    goto __exit_block;
+                }
+            }
+            else
+            {
+                Show_Error_Msg(L"Failed protect (GIui)");
+            }
+        }
+    __exit_block:
+
+        if (WriteProcessMemoryInternal(Tar_handle, __Tar_proc_buffer, (void*)_sc_buffer, 0x1000, 0))
         {
             if(VirtualProtect_Internal(Tar_handle, __Tar_proc_buffer, 0x1000, PAGE_EXECUTE_READ, 0))
             {
@@ -1035,7 +1102,7 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
     
-    wprintf_s(L"FPS unlocker 2.8.5\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
+    wprintf_s(L"FPS unlocker 2.8.6\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
 
     if (NTSTATUS r = init_API())
     {
@@ -1049,32 +1116,20 @@ int main(/*int argc, char** argvA*/void)
     if (LoadConfig() == 0)
         return 0;
 
-    _G_shellcode_buffer = init_shellcode();
-    if (!_G_shellcode_buffer)
-    {
-        Show_Error_Msg(L"initcode failed!");
-        return 0;
-    }
-
     wstring* ProcessPath = NewWstring(GamePath.size() + 1);
     wstring* ProcessDir = NewWstring(GamePath.size() + 1);
     wstring* procname = NewWstring(32);
-
     *ProcessPath = GamePath;
+    *ProcessDir = ProcessPath->substr(0, ProcessPath->find_last_of(L"\\"));
+    *procname = ProcessPath->substr(ProcessPath->find_last_of(L"\\") + 1);
+
     wprintf_s(L"\nGamePath: %s \n\n", GamePath.c_str());
     if(isGenshin == 0)
     {
         wprintf_s(L"When V-sync is opened, you need open setting then quit to apply change in StarRail.\n当垂直同步开启时解锁帧率需要进设置界面再退出才可应用\n");
     }
 
-    *ProcessDir = ProcessPath->substr(0, ProcessPath->find_last_of(L"\\"));
-    *procname = ProcessPath->substr(ProcessPath->find_last_of(L"\\") + 1);
-    
     {
-        __nop();
-        __nop();
-        __nop();
-        __nop();
     _wait_process_close:
         DWORD pid = GetPID(procname->c_str());
         if (pid)
@@ -1111,10 +1166,10 @@ int main(/*int argc, char** argvA*/void)
         }
     }
     
-    DWORD Hksr_ui_Rva = 0;
+    inject_arg injectarg = { 0 };
     if ((isGenshin == 0) && Use_mobile_UI)
     {
-        Hksr_ui_Rva = Hksr_ENmobile_get_Rva(ProcessDir->c_str());
+        injectarg.arg2 = (uint64_t)Hksr_ENmobile_get_Rva(ProcessDir->c_str());
     }
     size_t bootsize = sizeof(STARTUPINFOW) + sizeof(PROCESS_INFORMATION) + 0x20;
     LPVOID boot_info = malloc(bootsize);
@@ -1206,7 +1261,7 @@ __Get_target_sec:
     //7E 0C E8 ?? ?? ?? ?? 66 0F 6E C8 0F 5B C9 
     // 
     // 计算相对地址 (FPS)
-
+    
     uintptr_t pfps = 0;
     uintptr_t address = 0;
     if (isGenshin)
@@ -1216,8 +1271,8 @@ __Get_target_sec:
         {
             int64_t rip = address;
             rip += 3;
-            rip += *(int32_t*)(rip)+6;
-            rip += *(int32_t*)(rip)+4;
+            rip += *(int32_t*)(rip) + 6;
+            rip += *(int32_t*)(rip) + 4;
             pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
             goto __genshin_il;
         }
@@ -1226,8 +1281,8 @@ __Get_target_sec:
         {
             int64_t rip = address;
             rip += 3;
-            rip += *(int32_t*)(rip)+6;
-            rip += *(int32_t*)(rip)+4;
+            rip += *(int32_t*)(rip) + 6;
+            rip += *(int32_t*)(rip) + 4;
             pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
             goto __genshin_il;
         }
@@ -1236,8 +1291,8 @@ __Get_target_sec:
         {
             int64_t rip = address;
             rip += 3;
-            rip += *(int32_t*)(rip)+6;
-            rip += *(int32_t*)(rip)+4;
+            rip += *(int32_t*)(rip) + 6;
+            rip += *(int32_t*)(rip) + 4;
             pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
             goto __genshin_il;
         }
@@ -1257,7 +1312,7 @@ __Get_target_sec:
         return 0;
     }
     else
-    {
+    {//HKSR_pattern
         isHook = 0;
         address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "66 0F 6E 05 ?? ?? ?? ?? F2 0F 10 3D ?? ?? ?? ?? 0F 5B C0"); //ver 1.0 - last
         if (address)
@@ -1296,7 +1351,25 @@ __Get_target_sec:
     //-------------------------------------------------------------------------------------------------------------------------------------------------//
 
 __genshin_il:
+    if(Use_mobile_UI || isHook)
     {
+        if (Use_mobile_UI)
+        {
+            //E8 ?? ?? ?? ?? 48 8B 7D 40 89 87 ?? ?? ?? ?? E8 ?? ?? ?? ?? 4C 8B C0  platform_flag
+            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? 48 8B 7D 40 89 87 ?? ?? ?? ?? E8 ?? ?? ?? ?? 4C 8B C0");
+            if (address)
+            {
+                int64_t rip = address;
+                rip += 1;
+                rip += *(int32_t*)(rip) + 4 + 1;// +1 jmp va
+                rip += *(int32_t*)(rip) + 4 + 1;// +1 mov eax va
+                injectarg.arg3 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            }
+            else
+            {
+                Use_mobile_UI = 0;
+            }
+        }
         uintptr_t UA_baseAddr = Unityplayer_baseAddr;
         if (is_old_version)
         {
@@ -1333,21 +1406,40 @@ __genshin_il:
             Show_Error_Msg(L"Readmem Fail ! (il2cpp_GI)");
             goto __procfail;
         }
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 89 F1 E8 ?? ?? ?? ?? 8B 3D ?? ?? ?? ?? 48 8B 0D");
-        if (address)
+        if (Use_mobile_UI)
         {
-            int64_t rip = address;
-            rip += 10;
-            rip += *(int32_t*)rip;
-            rip += 4;
-            address = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-            goto __Continue;
+            //48 89 F1 E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 80 B9 ?? ?? ?? ?? 00 //hookFunc
+            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 89 F1 E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 80 B9 ?? ?? ?? ?? 00");
+            if (address)
+            {
+                int64_t rip = address;
+                rip += 0xC;
+                rip += *(int32_t*)(rip) + 4;
+                injectarg.arg4 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            }
+            else
+            {
+                Use_mobile_UI = 0;
+            }
+        }
+        if (isHook)
+        {
+            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 89 F1 E8 ?? ?? ?? ?? 8B 3D ?? ?? ?? ?? 48 8B 0D");
+            if (address)
+            {
+                int64_t rip = address;
+                rip += 10;
+                rip += *(int32_t*)rip;
+                rip += 4;
+                injectarg.arg1 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                goto __Continue;
+            }
         }
         isHook = 0;
     }
 
 __Continue:
-    uintptr_t Patch_buffer = inject_patch(pi->hProcess, address, pfps, Hksr_ui_Rva);
+    uintptr_t Patch_buffer = inject_patch(pi->hProcess, pfps, &injectarg);
     if (!Patch_buffer)
     {
         Show_Error_Msg(L"Inject Fail !\n");
@@ -1355,7 +1447,6 @@ __Continue:
         CloseHandle(pi->hProcess);
         return 0;
     }
-    _G_shellcode_buffer = (BYTE*)Patch_buffer;
 
     if (barg.Path_Lib)
     {
@@ -1437,7 +1528,7 @@ __Continue:
     Process_endstate++;
     WaitForSingleObject(hdisplay, INFINITE);
     CloseHandle(hdisplay);
-   
+    
     return 1;
 }
 
