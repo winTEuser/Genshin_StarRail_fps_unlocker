@@ -4,7 +4,7 @@
 #define KEY_DECREASE VK_DOWN
 #define KEY_DECREASE_SMALL VK_LEFT
 #define FPS_TARGET 120
-#define DEFAULT_DEVICE 2
+#define DEFAULT_DEVICE 11
 #define CONFIG_FILENAME (L"hoyofps_config.ini")
 #define IsKeyPressed(nVirtKey)    ((GetKeyState(nVirtKey) & (1<<(sizeof(SHORT)*8-1))) != 0)
 
@@ -652,8 +652,6 @@ __path_ok:
     ErrorMsg_EN = reader.GetBoolean(L"Setting", L"EnableErrorMsg", 1);
     isHook = reader.GetBoolean(L"Setting", L"IsHookGameSet", 0);
     Tar_Device = reader.GetInteger(L"Setting", L"TargetDevice", 2);
-    if (Tar_Device > 0x20)
-        Tar_Device = 2;
     ConfigPriorityClass = reader.GetInteger(L"Setting", L"GameProcessPriority", 3);
     switch (ConfigPriorityClass)
     {
@@ -799,7 +797,7 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
 struct inject_arg
 {
     uint64_t arg1;//GI fpsptr
-    uint64_t arg2;//HKSR uiva
+    uint64_t arg2;//HKSR uiva /GIuitype
     uint64_t arg3;//GI platform_sign
     uint64_t arg4;//GI hook_func
 };
@@ -829,7 +827,7 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
     LPVOID __Tar_proc_buffer = VirtualAllocEx_Internal(Tar_handle, NULL, 0x1000, PAGE_READWRITE);
     if (__Tar_proc_buffer)
     {
-        if (arg->arg2)
+        if (arg->arg2 && (!isGenshin))
         {
             *(uint32_t*)(_sc_buffer + 0x20) = arg->arg2;
             *(uint32_t*)(_sc_buffer + 0x24) = Tar_Device;
@@ -877,7 +875,7 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
                         goto __exit_block;
                     }
                 }
-                uint32_t platform_var = 0xB;
+                uint32_t platform_var = arg->arg2;
                 if (!WriteProcessMemoryInternal(Tar_handle, (void*)arg->arg3, &platform_var, 4, 0))
                 {
                     Show_Error_Msg(L"Failed hook (GIui)");
@@ -1102,7 +1100,7 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
     
-    wprintf_s(L"FPS unlocker 2.8.6\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
+    wprintf_s(L"FPS unlocker Debug\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
 
     if (NTSTATUS r = init_API())
     {
@@ -1416,6 +1414,7 @@ __genshin_il:
                 rip += 0xC;
                 rip += *(int32_t*)(rip) + 4;
                 injectarg.arg4 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                injectarg.arg2 = Tar_Device;
             }
             else
             {
