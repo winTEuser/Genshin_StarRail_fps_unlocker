@@ -855,9 +855,9 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
                 }
                 {
                     uint64_t ui_payload[] = {
-                    0x78EC834857565553, 0x0000009024AC8D48, 0x00000048358B4848, 0x000000481D8B4840,
+                    0x48EC834857565553, 0x0000009024AC8D48, 0x00000048358B4848, 0x000000481D8B4840,
                     0x00000048056F0FF3, 0xE8D98948037F0FF3, 0x004D8B48FFFFFF6C, 0x000206C79348D3FF,
-                    0xFF56E8F189480000, 0x5E5F78C48348FFFF, 0xCCCCCCCCCCC35B5D, 0 };
+                    0xFF56E8F189480000, 0x5E5F48C48348FFFF, 0xCCCCCCCCCCC35B5D, 0 };
                     memcpy((_sc_buffer + 0x300), &ui_payload, sizeof(ui_payload));
                     *(uint64_t*)(_sc_buffer + 0x300 + sizeof(ui_payload)) = arg->arg3;//p_platform_
                     *(uint64_t*)(_sc_buffer + 0x300 + sizeof(ui_payload) + 8) = arg->arg4;//func
@@ -1257,24 +1257,23 @@ __Get_target_sec:
     //7F 0E E8 ? ? ? ? 66 0F 6E C8 0F 5B C9
     //
     //7E 0C E8 ?? ?? ?? ?? 66 0F 6E C8 0F 5B C9 
-    // 
+    // 8B 0D ?? ?? ?? ?? 66 0F 6E C9 0F 5B C9 
     // 计算相对地址 (FPS)
     
     uintptr_t pfps = 0;
     uintptr_t address = 0;
     if (isGenshin)
     {
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "7E 0C E8 ?? ?? ?? ?? 66 0F 6E C8 0F 5B C9");
+        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "8B 0D ?? ?? ?? ?? 66 0F 6E C9 0F 5B C9");//5.5
         if (address)
         {
             int64_t rip = address;
-            rip += 3;
-            rip += *(int32_t*)(rip) + 6;
-            rip += *(int32_t*)(rip) + 4;
+            rip += 2;
+            rip += *(int32_t*)(rip)+4;
             pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
             goto __genshin_il;
         }
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "8B DF E8 ?? ?? ?? ?? 0F 57 C0 0F 29 74 24 30 66 0F 6E C8 0F 5B C9");
+        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "7E 0C E8 ?? ?? ?? ?? 66 0F 6E C8 0F 5B C9");//5.4
         if (address)
         {
             int64_t rip = address;
