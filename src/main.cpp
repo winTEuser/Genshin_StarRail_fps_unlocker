@@ -177,39 +177,61 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
     0x55,                                                 //push rbp
     0x56,                                                 //push rsi
     0x57,                                                 //push rdi
-    0x48, 0x83, 0xEC, 0x48,                               //sub rsp, 0x48
-    0x48, 0x8D, 0xAC, 0x24, 0x90, 0x00, 0x00, 0x00,       //lea rbp, [rsp+0x90]
-    0x44, 0x48, 0x8B, 0x35, 0x88, 0x00, 0x00, 0x00,       //mov rsi, [plat_form_ptr]
-    0x40, 0x48, 0x8B, 0x1D, 0x88, 0x00, 0x00, 0x00,       //mov rbx, [hook_func_ptr]
-    0xF3, 0x0F, 0x6F, 0x05, 0x88, 0x00, 0x00, 0x00,       //movdqu xmm0, [org_byte_func]
-    0xF3, 0x0F, 0x7F, 0x03,                               //movdqu [rbx], xmm0
-    0x48, 0x89, 0xD9,                                     //mov rcx, rbx
-    0xE8, 0x2C, 0x00, 0x00, 0x00,                         //call mem_protect
-    0x48, 0x8B, 0x4D, 0x00,                               //mov rcx, [rbp]
-    0xFF, 0xD3,                                           //call rbx
-    0x48, 0x97,                                           //xchg rdi, rax
-    0xC7, 0x06, 0x02, 0x00, 0x00, 0x00,                   //mov dword[rsi], 0x02
-    0x48, 0x89, 0xF1,                                     //mov rcx, rsi
-    0xE8, 0x16, 0x00, 0x00, 0x00,                         //call mem_protect
-    0x48, 0x97,                                           //xchg rdi, rax
-    0x48, 0x83, 0xC4, 0x48,                               //add rsp, 0x48
-    0x5F, 0x5E, 0x5D, 0x5B, 0xC3,                         //pop reg and return
+    0x48, 0x83, 0xEC, 0x68,                               //sub rsp, 0x48
+    0x44, 0x48, 0x8B, 0x35, 0xF0, 0x00, 0x00, 0x00,       //mov rsi, [plat_form_ptr]
+    0x40, 0x48, 0x8B, 0x1D, 0xF0, 0x00, 0x00, 0x00,       //mov rbx, [hook_func_ptr]
+    0x48, 0x8D, 0xAC, 0x24, 0x28, 0x00, 0x00, 0x00, 
+    0x48, 0x89, 0x4D, 0x08, 
+    0x48, 0x89, 0x55, 0x10,
+    0x4C, 0x89, 0x45, 0x18, 
+    0x4C, 0x89, 0x4D, 0x20, 
+    0x48, 0x89, 0xD9, 
+    0xE8, 0x68, 0x00, 0x00, 0x00,
+    0x48, 0x89, 0xF1, 
+    0xE8, 0x60, 0x00, 0x00, 0x00, 
+    0x48, 0x8B, 0x4D, 0x08, 
+    0x48, 0x8B, 0x55, 0x10,
+    0x4C, 0x8B, 0x45, 0x18, 
+    0x4C, 0x8B, 0x4D, 0x20, 
+    0xF3, 0x0F, 0x6F, 0x05, 0xB8, 0x00, 0x00, 0x00,
+    0xF3, 0x0F, 0x7F, 0x03, 
+    0x8B, 0x2E, 
+    0xC7, 0x06, 0x02, 0x00, 0x00, 0x00, 
+    0xFF, 0xD3, 
+    0x48, 0x97,
+    0xF3, 0x0F, 0x6F, 0x05, 0xB0, 0x00, 0x00, 0x00, 
+    0xF3, 0x0F, 0x7F, 0x03, 
+    0x89, 0x2E, 
+    0x48, 0x89, 0xD9, 
+    0xE8, 0x52, 0x00, 0x00, 0x00, 
+    0x48, 0x89, 0xF1, 
+    0xE8, 0x4A, 0x00, 0x00, 0x00, 
+    0x48, 0x97,
+    0x48, 0x83, 0xC4, 0x68, 
+    0x5F, 0x5E, 0x5D, 0x5B, 0xC3, 
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
     //int3
-    0xCC, 0xCC, 0xCC,
-    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 
-    //int3
+    0x48, 0x83, 0xEC, 0x38, 
+    0x4C, 0x8D, 0x0C, 0x24, 
+    0x41, 0xB8, 0x40, 0x00, 0x00, 0x00, 
+    0xBA, 0x00, 0x10, 0x00, 0x00, 
+    0x48, 0x81, 0xE1, 0x00, 0xF0, 0xFF, 0xFF, 
+    0x49, 0x83, 0xC1, 0x28, 
+    0xFF, 0x15, 0x74, 0xFD, 0xFF, 0xFF, 
+    0x48, 0x83, 0xC4, 0x38, 
+    0xC3, 
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 
     0x48, 0x83, 0xEC, 0x38, 
     0x4C, 0x8D, 0x0C, 0x24, 
     0x41, 0xB8, 0x20, 0x00, 0x00, 0x00, 
     0xBA, 0x00, 0x10, 0x00, 0x00, 
     0x48, 0x81, 0xE1, 0x00, 0xF0, 0xFF, 0xFF, 
     0x49, 0x83, 0xC1, 0x28, 
-    0xFF, 0x15, 0xB4, 0xFD, 0xFF, 0xFF, 
+    0xFF, 0x15, 0x44, 0xFD, 0xFF, 0xFF, 
     0x48, 0x83, 0xC4, 0x38, 
-    0xC3, 
-    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
-    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
-    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+    0xC3,
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC
 };
 
 #define sc_entryVA  (0x1B0)
@@ -808,95 +830,81 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
     *(uint64_t*)(_sc_buffer + 0x18) = _ptr_fps;
 
     LPVOID __Tar_proc_buffer = VirtualAllocEx_Internal(Tar_handle, NULL, 0x1000, PAGE_READWRITE);
-    if (__Tar_proc_buffer)
+    if (!__Tar_proc_buffer)
     {
-        if (arg->arg2 && (!isGenshin))
+        Show_Error_Msg(L"AllocEx Fail! ");
+        return 0;
+    }
+    if (arg->arg2 && (!isGenshin))
+    {
+        *(uint64_t*)(_sc_buffer + 0x20) = arg->arg2;
+        *(uint32_t*)(_sc_buffer + 0x28) = 2;
+        *(uint64_t*)(_sc_buffer + 0x30) = (uint64_t)__Tar_proc_buffer + 0x1E0;
+    }
+    if (isGenshin && Use_mobile_UI)
+    {
+        if (1)
         {
-            *(uint64_t*)(_sc_buffer + 0x20) = arg->arg2;
-            *(uint32_t*)(_sc_buffer + 0x28) = 2;
-            *(uint64_t*)(_sc_buffer + 0x30) = (uint64_t)__Tar_proc_buffer + 0x1E0;
-        }
-        if (isGenshin && Use_mobile_UI)
-        {
-            if (
-                VirtualProtect_Internal(Tar_handle, (void*)arg->arg3, 0x1000, 0x40, 0)
-                &&
-                VirtualProtect_Internal(Tar_handle, (void*)arg->arg4, 0x1000, 0x40, 0))
             {
+                char str_memprotect[16] = { 0 };
+                *(DWORD64*)(&str_memprotect) = 0xAF939E8A8B8D96A9;
+                *(DWORD64*)(&str_memprotect[8]) = 0x8EFF8B9C9A8B908D;
+                decbyte(str_memprotect, 2);
+                uint64_t API_memprotect = (uint64_t)GetProcAddress_Internal((HMODULE)~Kernel32_ADDR, str_memprotect);
+                if (!API_memprotect)
                 {
-                    char str_memprotect[16] = { 0 };
-                    *(DWORD64*)(&str_memprotect) = 0xAF939E8A8B8D96A9;
-                    *(DWORD64*)(&str_memprotect[8]) = 0x8EFF8B9C9A8B908D;
-                    decbyte(str_memprotect, 2);
-                    uint64_t API_memprotect = (uint64_t)GetProcAddress_Internal((HMODULE)~Kernel32_ADDR, str_memprotect);
-                    if (!API_memprotect)
-                    {
-                        Show_Error_Msg(L"Fail getFunction (memprotect)");
-                        goto __exit_block;
-                    }
-                    *(uint64_t*)(_sc_buffer + 0x38) = API_memprotect;
+                    Show_Error_Msg(L"Fail getFunction (memprotect)");
+                    goto __exit_block;
                 }
+                *(uint64_t*)(_sc_buffer + 0x38) = API_memprotect;
+            }
+            {
+                *(uint64_t*)(_sc_buffer + sizeof(_shellcode_Const)) = arg->arg3;//p_platform_
+                *(uint64_t*)(_sc_buffer + sizeof(_shellcode_Const) + 8) = arg->arg4;//func
+                if (!ReadProcessMemoryInternal(Tar_handle, (void*)arg->arg4, (_sc_buffer + sizeof(_shellcode_Const) + 0x10), 0x10, 0))
                 {
-                    *(uint64_t*)(_sc_buffer + sizeof(_shellcode_Const)) = arg->arg3;//p_platform_
-                    *(uint64_t*)(_sc_buffer + sizeof(_shellcode_Const) + 8) = arg->arg4;//func
-                    if (!ReadProcessMemoryInternal(Tar_handle, (void*)arg->arg4, (_sc_buffer + sizeof(_shellcode_Const) + 0x10), 0x10, 0))
-                    {
-                        Show_Error_Msg(L"Failed hook (GIui)");
-                        goto __exit_block;
-                    }
+                    Show_Error_Msg(L"Failed hook (GIui)");
+                    goto __exit_block;
                 }
-                {
-                    uint64_t ui_payload1[] = { 0x225FF, (uint64_t)((uint64_t)__Tar_proc_buffer + hooked_func_VA) };
-                    if (!WriteProcessMemoryInternal(Tar_handle, (void*)arg->arg4, &ui_payload1, 0x10, 0))
-                    {
-                        Show_Error_Msg(L"Failed hook (GIui)");
-                        goto __exit_block;
-                    }
-                }
-                uint32_t platform_var = arg->arg2;
-                if (!WriteProcessMemoryInternal(Tar_handle, (void*)arg->arg3, &platform_var, 4, 0))
+                uint64_t* hook_pa = (uint64_t*)(_sc_buffer + sizeof(_shellcode_Const) + 0x20);
+                *hook_pa = 0x225FF;
+                *(hook_pa + 1) = ((uint64_t)__Tar_proc_buffer + hooked_func_VA);
+                if (!WriteProcessMemoryInternal(Tar_handle, (void*)arg->arg4, hook_pa, 0x10, 0))
                 {
                     Show_Error_Msg(L"Failed hook (GIui)");
                     goto __exit_block;
                 }
             }
-            else
+            uint32_t platform_var = arg->arg2;
+            if (!WriteProcessMemoryInternal(Tar_handle, (void*)arg->arg3, &platform_var, 4, 0))
             {
-                Show_Error_Msg(L"Failed protect (GIui)");
+                Show_Error_Msg(L"Failed hook (GIui)");
+                goto __exit_block;
             }
         }
-    __exit_block:
-
-        if (WriteProcessMemoryInternal(Tar_handle, __Tar_proc_buffer, (void*)_sc_buffer, 0x1000, 0))
+        else
         {
-            if(VirtualProtect_Internal(Tar_handle, __Tar_proc_buffer, 0x1000, PAGE_EXECUTE_READ, 0))
-            {
-                HANDLE temp = CreateRemoteThreadEx_Internal(Tar_handle, 0, (LPTHREAD_START_ROUTINE)((uint64_t)__Tar_proc_buffer + sc_entryVA), NULL);
-                if (!temp)
-                {
-                    goto __proc_failed;
-                }
-                /*else
-                {
-                    temp = CreateRemoteThread(Tar_handle, 0, 0, (LPTHREAD_START_ROUTINE)((uint64_t)__Tar_proc_buffer + sc_entryVA), 0, 0, 0);
-                    if (!temp)
-                        goto __proc_failed;
-                }*/
-                CloseHandle(temp);
-                return ((uint64_t)__Tar_proc_buffer);
-            }
-
-        __proc_failed:
-            Show_Error_Msg(L"Create SyncThread Fail! ");
-            return 0;
+            Show_Error_Msg(L"Failed protect (GIui)");
         }
+    }
+__exit_block:
+
+    if (!WriteProcessMemoryInternal(Tar_handle, __Tar_proc_buffer, (void*)_sc_buffer, 0x1000, 0))
+    {
         Show_Error_Msg(L"Write Scode Fail! ");
         return 0;
     }
-    else 
+    VirtualFree_Internal(_sc_buffer, 0, MEM_RELEASE);
+    if (VirtualProtect_Internal(Tar_handle, __Tar_proc_buffer, 0x1000, PAGE_EXECUTE_READ, 0))
     {
-        Show_Error_Msg(L"AllocEx Fail! ");
-        return 0;
+        HANDLE temp = CreateRemoteThreadEx_Internal(Tar_handle, 0, (LPTHREAD_START_ROUTINE)((uint64_t)__Tar_proc_buffer + sc_entryVA), NULL);
+        if (!temp)
+        {
+            Show_Error_Msg(L"Create SyncThread Fail! ");
+            return 0;
+        }
+        CloseHandle(temp);
+        return ((uint64_t)__Tar_proc_buffer);
     }
 }
 
@@ -1097,7 +1105,7 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
     
-    wprintf_s(L"FPS unlocker 2.8.7\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
+    wprintf_s(L"FPS unlocker Debug\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
 
     if (NTSTATUS r = init_API())
     {
@@ -1403,12 +1411,12 @@ __genshin_il:
         }
         if (Use_mobile_UI)
         {
-            //48 89 F1 E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 80 B9 ?? ?? ?? ?? 00 //hookFunc
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 89 F1 E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 80 B9 ?? ?? ?? ?? 00");
+            //E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 8B 0D //hookFunc
+            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 8B 0D");
             if (address)
             {
                 int64_t rip = address;
-                rip += 0xC;
+                rip += 0x1;
                 rip += *(int32_t*)(rip) + 4;
                 injectarg.arg4 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
                 injectarg.arg2 = Tar_Device;
