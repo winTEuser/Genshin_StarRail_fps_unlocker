@@ -22,7 +22,6 @@
  - 解锁器放哪都行 **除了游戏目录**
  - 运行之前确保游戏是关闭的
  - 用管理员运行解锁器
- - 开启热修补后解锁器可以关掉
  - 自行编译 使用 Visual Studio 或 配置好msvc环境的Vscode
 >使用管理员运行是因为游戏必须由解锁器启动，游戏本身就需要管理员权限了，所以负责启动的也是需要的
 
@@ -30,7 +29,6 @@
  - unlocker.exe -[游戏] -[给解锁器的参数在游戏参数前] -[游戏参数...]
  - 例 unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
  - 例 unlocker.exe -HKSR -...
- - **低于(2.8.1)需区分大小写**
  - 在启动的游戏后面添加参数"**-EnableMobileUI**"来便捷启用移动端ui,该参数必须是**第二个**，否则无法被识别
  - unlocker.exe -Genshin -EnableMobileUI
  - DLL注入，使用前确保来源可靠性
