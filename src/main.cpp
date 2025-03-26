@@ -187,11 +187,11 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
     0xE8, 0x2C, 0x00, 0x00, 0x00,                         //call mem_protect
     0x48, 0x8B, 0x4D, 0x00,                               //mov rcx, [rbp]
     0xFF, 0xD3,                                           //call rbx
-    0x48, 0x93,                                           //xchg rbx, rax
+    0x48, 0x97,                                           //xchg rdi, rax
     0xC7, 0x06, 0x02, 0x00, 0x00, 0x00,                   //mov dword[rsi], 0x02
     0x48, 0x89, 0xF1,                                     //mov rcx, rsi
     0xE8, 0x16, 0x00, 0x00, 0x00,                         //call mem_protect
-    0x48, 0x93,                                           //xchg rbx, rax
+    0x48, 0x97,                                           //xchg rdi, rax
     0x48, 0x83, 0xC4, 0x48,                               //add rsp, 0x48
     0x5F, 0x5E, 0x5D, 0x5B, 0xC3,                         //pop reg and return
     //int3
@@ -1017,42 +1017,44 @@ static uint64_t Hksr_ENmobile_get_Ptr(HANDLE Tar_handle, LPCWSTR GPath)
     }
     uintptr_t Ua_il2cpp_RVA = 0;
     DWORD32 Ua_il2cpp_Vsize = 0;
-    if (Get_Section_info(GameAssembly_PEbuffer, "il2cpp", &Ua_il2cpp_Vsize, &Ua_il2cpp_RVA, GameAssembly_PEbuffer))
+    uint64_t retvar = 0;
+    if (!Get_Section_info(GameAssembly_PEbuffer, "il2cpp", &Ua_il2cpp_Vsize, &Ua_il2cpp_RVA, GameAssembly_PEbuffer))
     {
-        if (Ua_il2cpp_RVA && Ua_il2cpp_Vsize)
-        {
-            //80 B9 ?? ?? ?? ?? 00 74 46 C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3       //HKSR_2.4.0 - 2.5.0
-            //      75 05 E8 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 28 C3          //old-x-x-x--2.6.0
-            DWORD Device_type = Tar_Device;
-            DWORD64 tar_addr;
-            bool is_new_ver = 1;
-            DWORD64 address = 0;
-            if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "75 05 E8 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 28 C3"))
-            {
-                tar_addr = address + 9;
-                is_new_ver = 0;
-            }
-            else if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "80 B9 ?? ?? ?? ?? 00 74 46 C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3"))
-            {
-                tar_addr = address + 11;
-            }
-            else
-            {
-                Show_Error_Msg(L"UI pattern outdate!");
-                VirtualFree_Internal((void*)GameAssembly_PEbuffer, 0, MEM_RELEASE);
-                return 0;
-            }
-            VirtualFree_Internal((void*)GameAssembly_PEbuffer, 0, MEM_RELEASE);
-            int64_t rip = tar_addr;
-            rip += *(int32_t*)rip;
-            rip += 8;
-            rip -= GameAssembly_PEbuffer;
-            return ((uint64_t)il2cpp_base + rip);
-        }
+        Show_Error_Msg(L"get Section info Error !\n");
+        goto __exit;
     }
-    Show_Error_Msg(L"get Section info Error !\n");
+    if (Ua_il2cpp_RVA && Ua_il2cpp_Vsize)
+    {
+        //80 B9 ?? ?? ?? ?? 00 74 46 C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3       //HKSR_2.4.0 - 2.5.0
+        //      75 05 E8 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 28 C3          //old-x-x-x--2.6.0
+        DWORD Device_type = Tar_Device;
+        DWORD64 tar_addr;
+        bool is_new_ver = 1;
+        DWORD64 address = 0;
+        if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "75 05 E8 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 28 C3"))
+        {
+            tar_addr = address + 9;
+            is_new_ver = 0;
+        }
+        else if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "80 B9 ?? ?? ?? ?? 00 74 46 C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3"))
+        {
+            tar_addr = address + 11;
+        }
+        else
+        {
+            Show_Error_Msg(L"UI pattern outdate!");
+            goto __exit;
+        }
+        int64_t rip = tar_addr;
+        rip += *(int32_t*)rip;
+        rip += 8;
+        rip -= GameAssembly_PEbuffer;
+        retvar = ((uint64_t)il2cpp_base + rip);
+    }
+    
+__exit:
     VirtualFree_Internal((void*)GameAssembly_PEbuffer, 0, MEM_RELEASE);
-    return 0;
+    return retvar;
 
 }
 
