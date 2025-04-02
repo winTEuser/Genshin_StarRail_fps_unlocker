@@ -503,7 +503,7 @@ typedef struct NTSYSCALL_SCNUMBER
     //DWORD sc_CreateSec;
     //DWORD sc_mapView;
     //DWORD sc_UnmapView;
-};
+}NTSYSCALL_SCNUMBER, * PNTSYSCALL_SCNUMBER;
 
 typedef struct NTSYSAPIADDR
 {
@@ -570,17 +570,16 @@ __declspec(noinline) const wchar_t* FindFileVersion(const BYTE* ptr, size_t data
 //ntdll filever
 WORD ParseOSBuildBumber()
 {
-    PEB64* peb = reinterpret_cast<PEB64*>(__readgsqword(0x60));
-    PMODULE_TABLE_ENTRY list = peb->Ldr->InMemoryOrderModuleList.Flink->Next;//跳过第一个用户程序模块
-    HMODULE ntdll = list->ModBase;
-    if (!ntdll)
+    HMODULE ntdll = 0;
+    if (Ntdll_ADDR)
     {
-        char str_ntdll[16];
-        *(DWORD64*)(&str_ntdll) = 0x939BD193939B8B91;
-        str_ntdll[8] = 0x93;
-        str_ntdll[9] = 0xFF;
-        decbyte(str_ntdll, 2);
-        ntdll = LoadLibraryA(str_ntdll);
+        ntdll = (HMODULE)~Ntdll_ADDR;
+	}
+	else
+    {
+        PEB64* peb = reinterpret_cast<PEB64*>(__readgsqword(0x60));
+        PMODULE_TABLE_ENTRY list = peb->Ldr->InMemoryOrderModuleList.Flink->Next;//跳过第一个用户程序模块
+        ntdll = list->ModBase;
     }
     if (!ntdll)
         return 0;
@@ -1236,25 +1235,7 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
     HMODULE ntdll = list->ModBase;
     HMODULE kernel32 = list->Next->ModBase;
     if (!ntdll)
-    {
-        char str_ntdll[16];
-        *(DWORD64*)(&str_ntdll) = 0x939BD193939B8B91;
-        str_ntdll[8] = 0x93;
-        str_ntdll[9] = 0xFF;
-        decbyte(str_ntdll, 2);
-        ntdll = LoadLibraryA(str_ntdll);
-    }
-    if (!ntdll)
         return STATUS_DLL_NOT_FOUND;
-    if(!kernel32)
-    {
-        char str_kerneldll[16];
-        *(DWORD64*)(&str_kerneldll) = 0xCDCC939A918D9A94;
-        *(DWORD*)(&str_kerneldll[8]) = 0x93939BD1;
-        decbyte(str_kerneldll, 2);
-        *(DWORD*)(&str_kerneldll[12]) = 0;
-        kernel32 = LoadLibraryA(str_kerneldll);
-    }
     if (!kernel32)
         return STATUS_DLL_NOT_FOUND;
 
@@ -1267,9 +1248,15 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
     typedef LPCSTR(CDECL* pwine_get_version)(void);
     if(!isWine)
     {
-        if (pwine_get_version fptemp = pwine_get_version(GetProcAddress_Internal(ntdll, "wine_get_version")))
+		char str_wine[24];
+		*(DWORD64*)(&str_wine) = 0x8B9A98A09A919688;
+		*(DWORD64*)(&str_wine[8]) = 0x9190968C8D9A89A0;
+		decbyte(str_wine, 2);
+        *(DWORD64*)(&str_wine[16]) = 0;
+        if (pwine_get_version fptemp = pwine_get_version(GetProcAddress_Internal(ntdll, str_wine)))
         {
-            isWine = *(LPCSTR*)fptemp;
+            isWine = fptemp();
+            isWine = *(LPCSTR*)isWine;
         }
     }
 
@@ -1586,8 +1573,7 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
         
         tempstore.NtDelayExecution = (_NtDelayExecution_Win64)Ntdelay;
     }
-
-__init_Internalcall:
+ 
     if(!isWine)
     {
         BYTE* Ntdelay = (BYTE*)tempstore.NtDelayExecution;
@@ -1677,8 +1663,7 @@ __init_Internalcall:
             return ret;
         *PretValue = ~addr;
     }
-
-__init_other:
+    
     if(1)
     {
         char str_createproc[16];
