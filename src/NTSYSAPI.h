@@ -45,8 +45,8 @@ void NTAPI TLS_CALLBACK(PVOID DllHandle, DWORD Reason, PVOID Reserved)
     }
 }
 
-#pragma const_seg(".CRT$XLA")
-EXTERN_C const PIMAGE_TLS_CALLBACK pTLS_CALLBACKs[] = { TLS_CALLBACK, 0 };
+#pragma const_seg(".CRT$XLB")
+EXTERN_C volatile const PIMAGE_TLS_CALLBACK pTLS_CALLBACKs[] = { TLS_CALLBACK, 0 };
 #pragma const_seg()
 
 
@@ -521,7 +521,7 @@ typedef struct NTSYSAPIADDR
     //_NtCreateSection_Win64              NtCreateSection;
     //_NtMapViewOfSection_Win64           NtMapViewOfSection;
     //_NtUnmapViewOfSection_Win64         NtUnmapViewOfSection;
-}NTSYSAPIADDR, *PNTSYSAPIADDR;
+}NTSYSAPIADDR, *PNTSYSAPIADDR, **PPNTSYSAPIADDR;
 
 
 DWORD64 Ntdll_ADDR = 0;
@@ -568,7 +568,7 @@ __declspec(noinline) const wchar_t* FindFileVersion(const BYTE* ptr, size_t data
 }
 
 //ntdll filever
-WORD ParseOSBuildBumber()
+__declspec(noinline) WORD ParseOSBuildBumber()
 {
     HMODULE ntdll = 0;
     if (Ntdll_ADDR)
@@ -625,7 +625,7 @@ WORD ParseOSBuildBumber()
     return os_build_number;
 }
 
-int ParseSyscallscNum(void* func, DWORD* scNum) 
+__declspec(noinline) int ParseSyscallscNum(void* func, DWORD* scNum)
 {
     if (func)
     {
@@ -663,7 +663,7 @@ int ParseSyscallscNum(void* func, DWORD* scNum)
     return 0;
 }
 
-inline static bool wcstrcmp_pr(const wchar_t* fir, const wchar_t* sec)
+__forceinline bool wcstrcmp_pr(const wchar_t* fir, const wchar_t* sec)
 {
     int i = 0;
     while ((*(fir + i)) == (*(sec + i)))
@@ -675,7 +675,7 @@ inline static bool wcstrcmp_pr(const wchar_t* fir, const wchar_t* sec)
     return 0;
 }
 
-int __forceinline vm_strcmp(const char* str1, const char* str2)
+__forceinline int vm_strcmp(const char* str1, const char* str2)
 {
     unsigned char c1;
     unsigned char c2;
@@ -709,7 +709,7 @@ __forceinline void InitUnicodeString(PUNICODE_STRING DestinationString, PCWSTR S
     DestinationString->Buffer = (PWCH)SourceString;
 }
 
-void* GetProcAddress_Internal(HMODULE module, const char* proc_name)
+__declspec(noinline) void* GetProcAddress_Internal(HMODULE module, const char* proc_name)
 {
     // check input
     if (!module || !proc_name)
@@ -791,7 +791,7 @@ void* GetProcAddress_Internal(HMODULE module, const char* proc_name)
 }
 
 
-static DWORD BaseSetLastNTError_inter(DWORD Status)
+__declspec(noinline) static DWORD BaseSetLastNTError_inter(DWORD Status)
 {
     return RtlSetLastWin32ErrorAndNtStatusFromNtStatus(Status);
 }
@@ -804,7 +804,7 @@ static void NtSleep(DWORD milliseconds)
         BaseSetLastNTError_inter(EXCEPTION_ACCESS_VIOLATION);
         return Sleep(milliseconds);
     }
-    PNTSYSAPIADDR DecAPI = (PNTSYSAPIADDR)~API;
+    PNTSYSAPIADDR DecAPI = *(PPNTSYSAPIADDR)~API;
     LARGE_INTEGER ms{};
     ms.QuadPart = static_cast<LONGLONG>(-1) * (static_cast<LONGLONG>(milliseconds) * 10000);
     NTSTATUS ret = DecAPI->NtDelayExecution(false, &ms);
@@ -813,7 +813,7 @@ static void NtSleep(DWORD milliseconds)
 }
 
 
-static BOOLEAN WINAPI VirtualProtect_Internal(HANDLE procHandle, LPVOID baseAddr, size_t size, DWORD protect, DWORD* oldp)
+__declspec(noinline) static BOOLEAN WINAPI VirtualProtect_Internal(HANDLE procHandle, LPVOID baseAddr, size_t size, DWORD protect, DWORD* oldp)
 {
     if(!API)
     {
@@ -827,7 +827,7 @@ static BOOLEAN WINAPI VirtualProtect_Internal(HANDLE procHandle, LPVOID baseAddr
     }
     DWORD64 addr = (DWORD64)baseAddr;
     addr &= 0xFFFFFFFFFFFFF000;
-    PNTSYSAPIADDR DecAPI = (PNTSYSAPIADDR)~API;
+    PNTSYSAPIADDR DecAPI = *(PPNTSYSAPIADDR)~API;
     NTSTATUS ret = DecAPI->NtProtectVirtualMemory(procHandle, (void**)(&addr), &size, protect, oldp);
     if (ret)
     {
@@ -838,7 +838,7 @@ static BOOLEAN WINAPI VirtualProtect_Internal(HANDLE procHandle, LPVOID baseAddr
 }
 
 
-static PVOID WINAPI VirtualAllocEx_Internal(HANDLE procHandle, _In_opt_ PVOID dst_baseaddr, size_t size, DWORD protect)
+__declspec(noinline) static PVOID WINAPI VirtualAllocEx_Internal(HANDLE procHandle, _In_opt_ PVOID dst_baseaddr, size_t size, DWORD protect)
 {
     if (!API)
     {
@@ -851,7 +851,7 @@ static PVOID WINAPI VirtualAllocEx_Internal(HANDLE procHandle, _In_opt_ PVOID ds
         size &= 0xFFFFFFFFFFFFF000;
         size += 0x1000;
     }
-    PNTSYSAPIADDR DecAPI = (PNTSYSAPIADDR)~API;
+    PNTSYSAPIADDR DecAPI = *(PPNTSYSAPIADDR)~API;
     NTSTATUS ret = DecAPI->NtAllocateVirtualMemory(procHandle, &baseaddr, 0, &size, MEM_COMMIT | MEM_RESERVE, protect);
     if (ret)
     {
@@ -868,14 +868,14 @@ static PVOID WINAPI VirtualAlloc_Internal(_In_opt_ PVOID dst_baseaddr, size_t si
 }
 
 
-static BOOLEAN WINAPI VirtualFreeEx_Internal(HANDLE handle, _In_opt_ PVOID baseaddr, size_t size, DWORD Freetype)
+__declspec(noinline) static BOOLEAN WINAPI VirtualFreeEx_Internal(HANDLE handle, _In_opt_ PVOID baseaddr, size_t size, DWORD Freetype)
 {
     if (!API)
     {
         BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
         return 0;
     }
-    PNTSYSAPIADDR DecAPI = (PNTSYSAPIADDR)~API;
+    PNTSYSAPIADDR DecAPI = *(PPNTSYSAPIADDR)~API;
     NTSTATUS ret = DecAPI->NtFreeVirtualMemory(handle, &baseaddr, &size, Freetype);
     if (ret)
     {
@@ -892,14 +892,14 @@ static BOOLEAN WINAPI VirtualFree_Internal(_In_opt_ PVOID baseaddr, size_t size,
 }
 
 
-static BOOLEAN WINAPI ReadProcessMemoryInternal(HANDLE procHandle, _In_ LPVOID src_baseaddr, _In_opt_ LPVOID dst_buffer, size_t size, size_t* sizeofreadnum)
+__declspec(noinline) static BOOLEAN WINAPI ReadProcessMemoryInternal(HANDLE procHandle, _In_ LPVOID src_baseaddr, _In_opt_ LPVOID dst_buffer, size_t size, size_t* sizeofreadnum)
 {
     if(!API)
     {
         BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
         return 0;
     }
-    PNTSYSAPIADDR DecAPI = (PNTSYSAPIADDR)~API;
+    PNTSYSAPIADDR DecAPI = *(PPNTSYSAPIADDR)~API;
     size_t Readsize;
     NTSTATUS ret = DecAPI->NtReadVirtualMemory(procHandle, src_baseaddr, dst_buffer, size, &Readsize);
     if (sizeofreadnum)
@@ -913,7 +913,7 @@ static BOOLEAN WINAPI ReadProcessMemoryInternal(HANDLE procHandle, _In_ LPVOID s
 }
 
 
-static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, _In_opt_ LPVOID dst_baseaddr, _In_ LPVOID src_buffer, size_t size, size_t* sizeofwritenum)
+__declspec(noinline) static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, _In_opt_ LPVOID dst_baseaddr, _In_ LPVOID src_buffer, size_t size, size_t* sizeofwritenum)
 {
     if (!API)
     {
@@ -927,7 +927,7 @@ static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, _In_opt_ LPV
 
     NTSTATUS ret = 0;
     MEMORY_BASIC_INFORMATION temp = { 0 };
-    PNTSYSAPIADDR DecAPI = (PNTSYSAPIADDR)~API;
+    PNTSYSAPIADDR DecAPI = *(PPNTSYSAPIADDR)~API;
     ret = DecAPI->NtQueryVirtualMemory(procHandle, dst_baseaddr, MemoryBasicInformation, &temp, sizeof(temp), pwsize);
     if (ret)
         goto __failed;
@@ -964,7 +964,7 @@ __failed:
 }
 
 
-static LPVOID WINAPI CreateProcInfoSnapshot()
+__declspec(noinline) static LPVOID WINAPI CreateProcInfoSnapshot()
 {
     if (!API)
     {
@@ -973,7 +973,7 @@ static LPVOID WINAPI CreateProcInfoSnapshot()
     }
     LPVOID InfoHeap = 0;
     SIZE_T size = 0x20000;
-    PNTSYSAPIADDR DecAPI = (PNTSYSAPIADDR)~API;
+    PNTSYSAPIADDR DecAPI = *(PPNTSYSAPIADDR)~API;
     while(1)
     {
         NTSTATUS ret = DecAPI->NtAllocateVirtualMemory((HANDLE)-1, &InfoHeap, 0, &size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
@@ -1040,7 +1040,7 @@ static DWORD WINAPI GetProcPID(LPCWSTR ProcessName)
 }
 
 
-static HANDLE WINAPI CreateRemoteThreadEx_Internal(HANDLE hProcess, LPSECURITY_ATTRIBUTES lpThreadAttributes, LPTHREAD_START_ROUTINE lpStartAddress, LPVOID lpParameter)
+__declspec(noinline) static HANDLE WINAPI CreateRemoteThreadEx_Internal(HANDLE hProcess, LPSECURITY_ATTRIBUTES lpThreadAttributes, LPTHREAD_START_ROUTINE lpStartAddress, LPVOID lpParameter)
 {
     if (!API)
     {
@@ -1048,7 +1048,7 @@ static HANDLE WINAPI CreateRemoteThreadEx_Internal(HANDLE hProcess, LPSECURITY_A
         return 0;
     }
     HANDLE retHandle = 0;
-    PNTSYSAPIADDR DecAPI = (PNTSYSAPIADDR)~API;
+    PNTSYSAPIADDR DecAPI = *(PPNTSYSAPIADDR)~API;
     NTSTATUS status = DecAPI->NtCreateThreadEx(&retHandle, GENERIC_ALL, 0, hProcess, lpStartAddress, lpParameter, 0, 0, 0xC000, 0x30000, 0);
     if (status)
     {
@@ -1059,7 +1059,7 @@ static HANDLE WINAPI CreateRemoteThreadEx_Internal(HANDLE hProcess, LPSECURITY_A
 }
 
 
-static HANDLE WINAPI OpenProcess_Internal(DWORD dwDesiredAccess, DWORD dwProcessId)
+__declspec(noinline) static HANDLE WINAPI OpenProcess_Internal(DWORD dwDesiredAccess, DWORD dwProcessId)
 {
     if (!API)
     {
@@ -1072,7 +1072,7 @@ static HANDLE WINAPI OpenProcess_Internal(DWORD dwDesiredAccess, DWORD dwProcess
     tempOb.Length = 0x30;
     tempOb.Attributes = 0x2;
     tempID.UniqueProc = (HANDLE)dwProcessId;
-    PNTSYSAPIADDR DecAPI = (PNTSYSAPIADDR)~API;
+    PNTSYSAPIADDR DecAPI = *(PPNTSYSAPIADDR)~API;
     NTSTATUS ret = DecAPI->NtOpenProcess(&opHandle, dwDesiredAccess, &tempOb, &tempID);
     if (ret)
     {
@@ -1090,7 +1090,7 @@ static BOOLEAN WINAPI TerminateProcess_Internal(HANDLE hProcess, DWORD Code)
         BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
         return 0;
     }
-    PNTSYSAPIADDR DecAPI = (PNTSYSAPIADDR)~API;
+    PNTSYSAPIADDR DecAPI = *(PPNTSYSAPIADDR)~API;
     NTSTATUS ret = DecAPI->NtTerminateProcess(hProcess, Code);
     if (ret < 0)
     {
@@ -1104,6 +1104,7 @@ static BOOLEAN WINAPI TerminateProcess_Internal(HANDLE hProcess, DWORD Code)
 static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCALL_SCNUMBER* SCnum_struct, PNTSYSAPIADDR Store)
 {
     //memset
+    if(0)
     {
         *(DWORD64*)buff = 0xCCCCCCCCCCCCCCCC;
         *(DWORD64*)((BYTE*)buff + 8) = 0xCCCCCCCCCCCCCCCC;
@@ -1146,44 +1147,60 @@ static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCAL
         }
     }
     __nop();
-    DWORD64 va = __rdtsc();
-    DWORD vaAH = va >> 32;
-    DWORD vaAL = va & 0xFFFFFFFF;
-    va = vaAH ^ vaAL;
-    BYTE* startaddr = (BYTE*)buff + ((va >> 16) & 0x7F0);
-    BYTE* call = (startaddr + 0x180 + (vaAH & 0x7F0));
-    BYTE* spoofcallstart = ((call + 0x50) + (vaAL & 0x7F0)) + (va & 0x7F0);
+    //random var
+    DWORD64 ra = __rdtsc();
+    ra ^= (DWORD64)Store;
+    DWORD raRAXH = ra >> 32;
+    DWORD raRAXL = ra & 0xFFFFFFFF;
+    ra ^= raRAXH;
+    ra ^= (DWORD64)SCnum_struct;
+    WORD ra1 = ra >> 16;
+    WORD ra2 = ra & 0xFFFF;
+    ra1 ^= ra2;
+    ra2 ^= ra1;
+    WORD ra3 = (~raRAXL ^ ra) & 0xFFFF;
+    WORD ra4 = (~raRAXH ^ ra) & 0xFFFF;
 
+    BYTE* startaddr = (BYTE*)buff + ((ra1 & 0xFF) << 4);//private syscall start addr
+    BYTE* call = ((startaddr + 0x180) + ((ra2 & 0xFF) << 4));//jump to buildfakestack addr
+    BYTE* spoofcalladdr = ((call + 0x30) + ((ra3 & 0xFF) << 4));//buildfakestack addr
+    BYTE* restoreaddr = ((spoofcalladdr + 0x30) + ((ra4 & 0xFF) << 4));//restore stack addr
+
+    //jump to buildfakestack part
     *(DWORD64*)call = 0xB94859482414874C;
     *(DWORD64*)(call + 0x8) = ~(DWORD64)CallAddr;
-    *(DWORD*)(call + 0x10) = 0x058D4850;
-    *(DWORD*)(call + 0x14) = (((call + 0x30) + (vaAL & 0x7F0)) - (call + 0x18));//fakestackcall
+    *(DWORD32*)(call + 0x10) = 0x058D4850;
+    *(DWORD32*)(call + 0x14) = (restoreaddr - (call + 0x18));//restoreva
     *(DWORD64*)(call + 0x18) = 0x25FF4844;
-    *(DWORD64*)(call + 0x20) = (DWORD64)spoofcallstart;
+    *(DWORD64*)(call + 0x20) = (DWORD64)spoofcalladdr;
 
-    *(DWORD64*)((call + 0x30) + (vaAL & 0x7F0)) = 0xFFFFFF0024A48D48;
-    *(DWORD64*)((call + 0x38) + (vaAL & 0x7F0)) = 0x22024A48D48;
-    *(DWORD64*)((call + 0x40) + (vaAL & 0x7F0)) = 0x8B48944824048748;
-    *(DWORD64*)((call + 0x48) + (vaAL & 0x7F0)) = 0x834800408B480868;
-    *(DWORD32*)((call + 0x50) + (vaAL & 0x7F0)) = 0xCCC310C4;
+    //restore stack part
+    *(DWORD64*)(restoreaddr + 0x00) = 0xFFFFFF0024A48D48;
+    *(DWORD64*)(restoreaddr + 0x08) = 0x22024A48D48;
+    *(DWORD64*)(restoreaddr + 0x10) = 0x8B48944824048748;
+    *(DWORD64*)(restoreaddr + 0x18) = 0x834800408B480868;
+    *(DWORD32*)(restoreaddr + 0x20) = 0xCCC310C4;
 
-    *(DWORD64*)(spoofcallstart + 0)    = 0x24A48D48C48B4850;
-    *(DWORD64*)(spoofcallstart + 0x8)  = 0x242C8748FFFFF980;
-    *(DWORD64*)(spoofcallstart + 0x10) = 0x2404894808EC8348;
-    *(DWORD64*)(spoofcallstart + 0x18) = 0xFFFFFEE024A48D48;
-    *(DWORD64*)(spoofcallstart + 0x20) = 0x8408D48288930FF;
-    *(DWORD64*)(spoofcallstart + 0x28) = 0x2444110F3040100F;
-    *(DWORD64*)(spoofcallstart + 0x30) = 0x44110F4040100F28;
-    *(DWORD64*)(spoofcallstart + 0x38) = 0x110F5040100F3824;
-    *(DWORD64*)(spoofcallstart + 0x40) = 0xF6040100F482444;
-    *(DWORD64*)(spoofcallstart + 0x48) = 0x40874858244411;
-    *(DWORD64*)(spoofcallstart + 0x50) = 0xCCCCE1FFD1F74844;
+    //buildfakestack part
+    *(DWORD64*)(spoofcalladdr + 0x00) = 0x24A48D48C48B4850;
+    *(DWORD64*)(spoofcalladdr + 0x08) = 0x242C8748FFFFF980;
+    *(DWORD64*)(spoofcalladdr + 0x10) = 0x2404894808EC8348;
+    *(DWORD64*)(spoofcalladdr + 0x18) = 0xFFFFFEE024A48D48;
+    *(DWORD64*)(spoofcalladdr + 0x20) = 0x8408D48288930FF;
+    *(DWORD64*)(spoofcalladdr + 0x28) = 0x2444110F3040100F;
+    *(DWORD64*)(spoofcalladdr + 0x30) = 0x44110F4040100F28;
+    *(DWORD64*)(spoofcalladdr + 0x38) = 0x110F5040100F3824;
+    *(DWORD64*)(spoofcalladdr + 0x40) = 0xF6040100F482444;
+    *(DWORD64*)(spoofcalladdr + 0x48) = 0x40874858244411;
+    *(DWORD64*)(spoofcalladdr + 0x50) = 0xCCCCE1FFD1F74844;
 
+    //private syscall build
     for(int i = 0; i != 0xC; i++)
     {
         *(DWORD64*)(startaddr + (i * 0x20)) = 0xB948FFFFFFFFB851;
         *(DWORD64*)(startaddr + (i * 0x20) + 0x8) = ~(DWORD64)call;
         *(DWORD64*)(startaddr + (i * 0x20) + 0x10) = 0xCCCCE1FFD1F74844;
+        *(DWORD64*)(startaddr + (i * 0x20) + 0x18) = 0xCCCCCCCCCCCCCCCC;
     }
     *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_CreateThreadEx;
     Store->NtCreateThreadEx = (_NtCreateThreadEx_Win64)startaddr;
@@ -1622,27 +1639,28 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
             initcall.calladdr = ~addr;
         }
         initcall.rcx = -1;
-        size_t i = 0x4000;
+        size_t i = 0x8000;
         DWORD64 addr = 0;
         NTSTATUS ret = ((_NtAllocateVirtualMemory_Win64)&asm_syscall)(&initcall, &addr, 0, &i, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
         if (!ret)
         {
-            *(DWORD64*)addr = addr;
             DWORD64 APIstore = addr + 0x1000;
+            *(DWORD64*)addr = APIstore;
             DWORD oldp = 0;
-            addr += 0x2000;
+            DWORD64 EXaddr = addr + 0x2000;
             i -= 0x2000;
-            init_syscall_buff((void*)addr, Ntdelay, &SC_number, &tempstore);
+            init_syscall_buff((void*)EXaddr, Ntdelay, &SC_number, &tempstore);
             initcall.scnumber = SC_number.sc_ProtectMem;
-            ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)(&initcall, &addr, &i, PAGE_EXECUTE_READ, &oldp);
+            ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)(&initcall, &EXaddr, &i, PAGE_EXECUTE_READ, &oldp);
             if (ret)
                 return ret;
-            i -= 0x1000;
+            i = 0x2000;
             memcpy((void*)APIstore, &tempstore, sizeof(NTSYSAPIADDR));
-            ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)(&initcall, &APIstore, &i, PAGE_READONLY, &oldp);
+            ret = ((_NtProtectVirtualMemory_Win64)&asm_syscall)(&initcall, &addr, &i, PAGE_READONLY, &oldp);
             if (ret)
                 return ret;
-            *PretValue = ~APIstore;
+
+            *PretValue = ~addr;
         }
         else
         {
@@ -1652,10 +1670,12 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
     else
     {
         DWORD64 addr = 0;
-        size_t sz = 0x1000;
+        size_t sz = 0x2000;
         NTSTATUS ret = tempstore.NtAllocateVirtualMemory((HANDLE)-1, &addr, 0, &sz, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
         if (ret)
             return ret;
+        *(DWORD64*)addr = (addr + 1000);
+        addr += 1000;
         memcpy((void*)addr, &tempstore, sizeof(NTSYSAPIADDR));
         DWORD oldp;
         ret = tempstore.NtProtectVirtualMemory((HANDLE)-1, &addr, &sz, PAGE_READONLY, &oldp);

@@ -11,6 +11,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <vector>
+#include <string>
 #include <emmintrin.h>
 #include <immintrin.h>
 
@@ -34,30 +36,6 @@
 #endif
 #endif
 
-
-/*
-static int32_t Init_CPUID_07_flag()
-{
-	int32_t info = 0;
-	__cpuid(&info, 0);
-	if (info < 7)
-	{
-		goto __not_support;
-	}
-	else
-	{
-		int32_t cpuidInfoArr[4] = { 0 };
-		__cpuidex(cpuidInfoArr, 7, 0);
-		return cpuidInfoArr[1];
-	}
-__not_support:
-	return 0;
-	//MessageBoxW(NULL, L"无法获取当前CPU支持的指令集！\nGet Instruction Set failed!", L"Fatal Error", 0x10);
-	//ExitProcess(0);
-}
-
-static int32_t CPUID_07_EBX = Init_CPUID_07_flag();
-*/
 
 
 static INLINE bool Is_supportAVX()
@@ -108,8 +86,6 @@ static bool Is_supportAVX512F()
 	//ExitProcess(0);
 }
 */
-
-
 
 
 bool is_supportAVX = Is_supportAVX();

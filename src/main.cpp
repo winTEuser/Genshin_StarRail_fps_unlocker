@@ -1029,20 +1029,17 @@ static uint64_t Hksr_ENmobile_get_Ptr(HANDLE Tar_handle, LPCWSTR GPath)
     }
     if (Ua_il2cpp_RVA && Ua_il2cpp_Vsize)
     {
-        //80 B9 ?? ?? ?? ?? 00 74 46 C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3       //HKSR_2.4.0 - 2.5.0
-        //      75 05 E8 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 28 C3          //old-x-x-x--2.6.0
-        DWORD Device_type = Tar_Device;
+        //80 B9 ?? ?? ?? ?? 00 74 46 C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3       
+        //      75 05 E8 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 28 C3          
         DWORD64 tar_addr;
-        bool is_new_ver = 1;
-        DWORD64 address = 0;
-        if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "75 05 E8 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 28 C3"))
-        {
-            tar_addr = address + 9;
-            is_new_ver = 0;
-        }
-        else if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "80 B9 ?? ?? ?? ?? 00 74 46 C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3"))
+        DWORD64 address;
+        if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "80 B9 ?? ?? ?? ?? 00 74 46 C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3"))
         {
             tar_addr = address + 11;
+        }
+        else if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "75 05 E8 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 28 C3"))
+        {
+            tar_addr = address + 9;
         }
         else
         {
@@ -1091,7 +1088,8 @@ static void FullScreen()
 
 int main(/*int argc, char** argvA*/void)
 {
-    SetPriorityClass((HANDLE)-1, HIGH_PRIORITY_CLASS);
+    SetPriorityClass((HANDLE)-1, REALTIME_PRIORITY_CLASS);
+    SetThreadPriority((HANDLE)-2, THREAD_PRIORITY_TIME_CRITICAL);
     setlocale(LC_CTYPE, "");
     FullScreen();
     SetConsoleTitleA("HoyoGameFPSunlocker");
