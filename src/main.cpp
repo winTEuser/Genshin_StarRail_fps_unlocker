@@ -44,6 +44,7 @@ bool ErrorMsg_EN = 1;
 bool isHook = 0;
 bool is_old_version = 0;
 bool isAntimiss = 1;
+bool AutoExit = 0;
 HWND _console_HWND = 0;
 BYTE ConfigPriorityClass = 1;
 uint32_t GamePriorityClass = NORMAL_PRIORITY_CLASS;
@@ -130,10 +131,9 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
     0x48, 0x85, 0xC0,                                    //test rax, rax 
     0x75, 0x01,                                          //jnz callproc
     0xC3,                                                //ret
-    0x44, 0x48, 0x89, 0xE9,                              //mov rcx, rbp
     0xFF, 0xE0,                                          //jmp rax
     //int3                                               
-    0xCC, 0xCC,                                          
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,      
     //int3                                               
     0x48, 0x83, 0xEC, 0x28,                              //sub rsp, 0x28                        //Show Errormsg and closehandle
@@ -148,8 +148,7 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
     0xC3,                                                //ret 
     //int3                                               
     0xCC,                                                
-    'S','y','n','c',' ','f','a','i','l','e','d','!', 
-    0x00, 0x00, 0x00, 0x00,
+    'S','y','n','c',' ','f','a','i','l','e','d','!', 0x00, 0x00, 0x00, 0x00,
     'E','r','r','o','r', 0x00, 0x00, 0x00,               
     //int3                                               
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,      
@@ -173,72 +172,150 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] =
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
     //int3
-    0x53,                                                 //push rbx                       //hooked_func VA + 0x200
-    0x55,                                                 //push rbp
-    0x56,                                                 //push rsi
-    0x57,                                                 //push rdi
-    0x48, 0x83, 0xEC, 0x68,                               //sub rsp, 0x48
-    0x44, 0x48, 0x8B, 0x35, 0xF0, 0x00, 0x00, 0x00,       //mov rsi, [plat_form_ptr]
-    0x40, 0x48, 0x8B, 0x1D, 0xF0, 0x00, 0x00, 0x00,       //mov rbx, [hook_func_ptr]
-    0x48, 0x8D, 0xAC, 0x24, 0x28, 0x00, 0x00, 0x00,       //lea rbp, [rsp + 0x28]
-    0x48, 0x89, 0x4D, 0x08,                               //mov [rbp + 8], rcx
-	0x48, 0x89, 0x55, 0x10,							      //mov [rbp + 0x10], rdx  
-	0x4C, 0x89, 0x45, 0x18, 						      //mov [rbp + 0x18], r8
-	0x4C, 0x89, 0x4D, 0x20, 						      //mov [rbp + 0x20], r9
-	0x48, 0x89, 0xD9, 								      //mov rcx, rbx
-	0xE8, 0x68, 0x00, 0x00, 0x00,   			          //call mem_protect_RXW
-	0x48, 0x89, 0xF1,   						          //mov rcx, rsi
-	0xE8, 0x60, 0x00, 0x00, 0x00,   		              //call mem_protect_RXW
-	0x48, 0x8B, 0x4D, 0x08, 						      //mov rcx, [rbp + 8]
-	0x48, 0x8B, 0x55, 0x10, 						      //mov rdx, [rbp + 0x10]
-	0x4C, 0x8B, 0x45, 0x18,     		                  //mov r8, [rbp + 0x18]
-	0x4C, 0x8B, 0x4D, 0x20,     	                      //mov r9, [rbp + 0x20]
-	0xF3, 0x0F, 0x6F, 0x05, 0xB8, 0x00, 0x00, 0x00,	      //movdqu xmm0, [org_pattern]
-	0xF3, 0x0F, 0x7F, 0x03, 							  //movdqu [rbx], xmm0
-	0x8B, 0x2E, 										  //mov ebp, [rsi]
-	0xC7, 0x06, 0x02, 0x00, 0x00, 0x00,  			      //mov dword ptr [rsi], 2
-	0xFF, 0xD3, 										  //call rbx
-	0x48, 0x97, 										  //xchg rdi, rax
-	0xF3, 0x0F, 0x6F, 0x05, 0xB0, 0x00, 0x00, 0x00, 	  //movdqu xmm0, [hook_pattern]
-	0xF3, 0x0F, 0x7F, 0x03, 							  //movdqu [rbx], xmm0
-	0x89, 0x2E, 										  //mov [rsi], ebp
-	0x48, 0x89, 0xD9, 								      //mov rcx, rbx
-	0xE8, 0x52, 0x00, 0x00, 0x00,  			              //call mem_protect_RX
-	0x48, 0x89, 0xF1, 								      //mov rcx, rsi
-	0xE8, 0x4A, 0x00, 0x00, 0x00,  			              //call mem_protect_RX
-	0x48, 0x97, 										  //xchg rdi, rax
-	0x48, 0x83, 0xC4, 0x68, 							  //add rsp, 0x48
-	0x5F, 0x5E, 0x5D, 0x5B, 0xC3, 					      //pop rdi, rsi, rbp, rbx, ret
+	0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54,                    //push r15,r14,r13,r12                 //hooked_func VA + 0x200
+	0x53, 0x55, 0x56, 0x57,                                            //push rbx,rbp,rsi,rdi   
+    0x48, 0x83, 0xEC, 0x68,                                            //sub rsp, 0x68
+    0x44, 0x48, 0x8B, 0x35, 0x88, 0x01, 0x00, 0x00,                    //mov rsi, [Hooked_funcstruct]
+    0x40, 0x48, 0x8B, 0x1D, 0x88, 0x01, 0x00, 0x00,                    //mov rbx, [verfiy_func_ptr]
+    0x48, 0x8D, 0xAC, 0x24, 0x28, 0x00, 0x00, 0x00,                    //lea rbp, [rsp + 0x28]
+    0x48, 0x89, 0x4D, 0x08,                                            //mov [rbp + 8], rcx
+	0x48, 0x89, 0x55, 0x10,							                   //mov [rbp + 0x10], rdx  
+	0x4C, 0x89, 0x45, 0x18, 						                   //mov [rbp + 0x18], r8
+	0x4C, 0x89, 0x4D, 0x20, 						                   //mov [rbp + 0x20], r9
+	0x4C, 0x48, 0x8D, 0x3D, 0xD0, 0x00, 0x00, 0x00,                    //lea rdi, [mem_protect_RXW]
+	0x4D, 0x31, 0xE4, 								                   //xor r12, r12
+    0x66,0x66,0x66,0x66,0x66,0x0F,0x1F,0x84,0x00,0x00,0x00,0x00,0x00,  //nop
+	0x4E, 0x8D, 0x2C, 0x26, 							               //lea r13, [rsi + r12 * 1]
+	0x49, 0x8B, 0x4D, 0x00, 							               //mov rcx, [r13 + 0]
+	0x49, 0x89, 0xCE, 								                   //mov r14, rcx
+	0x48, 0x85, 0xC9, 								                   //test rcx, rcx
+	0x74, 0x18, 										               //jz break
+	0xFF, 0xD7, 									                   //call rdi
+	0x85, 0xC0, 										               //test eax, eax
+	0x74, 0x0C, 										               //jz skip
+	0xF3, 0x41, 0x0F, 0x6F, 0x45, 0x20, 				               //movdqu xmm0, [r13 + 0x20]
+	0xF3, 0x41, 0x0F, 0x7F, 0x46, 0x00, 				               //movdqu [r14], xmm0
+	0x49, 0x83, 0xC4, 0x30, 							               //add r12, 0x30
+	0xEB, 0xD8, 										               //jmp continue
+	0x48, 0x89, 0xD9, 								                   //mov rcx, rbx
+	0xE8, 0x90, 0x00, 0x00, 0x00,   			                       //call mem_protect_RXW
+	0x48, 0x8B, 0x4D, 0x08, 						                   //mov rcx, [rbp + 8]
+	0x48, 0x8B, 0x55, 0x10, 						                   //mov rdx, [rbp + 0x10]
+	0x4C, 0x8B, 0x45, 0x18,     		                               //mov r8, [rbp + 0x18]
+	0x4C, 0x8B, 0x4D, 0x20,     	                                   //mov r9, [rbp + 0x20]
+	0xF3, 0x0F, 0x6F, 0x05, 0x18, 0x01, 0x00, 0x00,	                   //movdqu xmm0, [org_pattern]
+	0xF3, 0x0F, 0x7F, 0x03, 							               //movdqu [rbx], xmm0
+	0xFF, 0xD3, 										               //call rbx
+	0x49, 0x97, 										               //xchg r15, rax
+	0xF3, 0x0F, 0x6F, 0x05, 0x18, 0x01, 0x00, 0x00, 				   //movdqu xmm0, [Hooked_pattern]
+	0xF3, 0x0F, 0x7F, 0x03, 							               //movdqu [rbx], xmm0
+    0x4C, 0x48, 0x8D, 0x3D, 0x8C, 0x00, 0x00, 0x00,                    //lea rdi, [mem_protect_RX]
+    0x4D, 0x31, 0xE4, 								                   //xor r12, r12
+    0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,		       //nop
+    0x4E, 0x8D, 0x2C, 0x26, 							               //lea r13, [rsi + r12 * 1]
+    0x49, 0x8B, 0x4D, 0x00, 							               //mov rcx, [r13 + 0]
+    0x49, 0x89, 0xCE, 								                   //mov r14, rcx
+    0x48, 0x85, 0xC9, 								                   //test rcx, rcx
+    0x74, 0x14, 										               //jz break
+    0xF3, 0x41, 0x0F, 0x6F, 0x45, 0x10, 				               //movdqu xmm0, [r13 + 0x10]
+    0xF3, 0x41, 0x0F, 0x7F, 0x46, 0x00, 				               //movdqu [r14], xmm0
+    0xFF, 0xD7, 									                   //call rdi
+    0x49, 0x83, 0xC4, 0x30, 							               //add r12, 0x30
+    0xEB, 0xDC, 										               //jmp continue
+	0x48, 0x89, 0xD9, 								                   //mov rcx, rbx
+	0x48, 0xFF, 0xD7,             			                           //call rdi
+	0x49, 0x97, 										               //xchg r15, rax
+	0x48, 0x83, 0xC4, 0x68, 							               //add rsp, 0x68
+	0x5F, 0x5E, 0x5D, 0x5B,                                            //pop rdi, rsi, rbp, rbx,
+    0x41, 0x5C, 0x41, 0x5D, 0x41, 0x5E, 0x41, 0x5F,	                   //pop r15,r14,r13,r12
+    0xC3,                                                              //ret
 	//int3
-    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
-    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+	0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+	0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+    0xCC, 0xCC, 0xCC, 
     //int3
-	0x48, 0x83, 0xEC, 0x38,                               //sub rsp, 0x38
+	0x48, 0x83, 0xEC, 0x38,                               //sub rsp, 0x38           //mem_protect_RXW
 	0x4C, 0x8D, 0x0C, 0x24,                               //lea r9, [rsp]
 	0x41, 0xB8, 0x40, 0x00, 0x00, 0x00, 				  //mov r8d, 0x40
-	0xBA, 0x00, 0x10, 0x00, 0x00, 					      //mov edx, 0x1000
+	0xBA, 0x00, 0x20, 0x00, 0x00, 					      //mov edx, 0x2000
 	0x48, 0x81, 0xE1, 0x00, 0xF0, 0xFF, 0xFF, 		      //and rcx, 0xFFFFF000
 	0x49, 0x83, 0xC1, 0x28, 							  //add r9, 0x28
-	0xFF, 0x15, 0x94, 0xFD, 0xFF, 0xFF, 				  //call [API_MemProtect]
+	0xFF, 0x15, 0x24, 0xFD, 0xFF, 0xFF, 				  //call [API_MemProtect]
 	0x48, 0x83, 0xC4, 0x38, 							  //add rsp, 0x38
 	0xC3, 											      //ret
 	//int3
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 
 	//int3
-	0x48, 0x83, 0xEC, 0x38, 							  //sub rsp, 0x38
+	0x48, 0x83, 0xEC, 0x38, 							  //sub rsp, 0x38           //mem_protect_RX
 	0x4C, 0x8D, 0x0C, 0x24, 							  //lea r9, [rsp]
 	0x41, 0xB8, 0x20, 0x00, 0x00, 0x00, 				  //mov r8d, 0x20
-	0xBA, 0x00, 0x10, 0x00, 0x00, 					      //mov edx, 0x1000
+	0xBA, 0x00, 0x20, 0x00, 0x00, 					      //mov edx, 0x2000
 	0x48, 0x81, 0xE1, 0x00, 0xF0, 0xFF, 0xFF, 		      //and rcx, 0xFFFFF000
 	0x49, 0x83, 0xC1, 0x28, 							  //add r9, 0x28
-	0xFF, 0x15, 0x64, 0xFD, 0xFF, 0xFF, 				  //call [API_MemProtect]
+	0xFF, 0x15, 0xF4, 0xFC, 0xFF, 0xFF, 				  //call [API_MemProtect]
 	0x48, 0x83, 0xC4, 0x38, 							  //add rsp, 0x38
 	0xC3, 											      //ret
+    //int3
     0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
 };
 
 #define sc_entryVA  (0x1B0)
 #define hooked_func_VA (0x200)
+#define mem_protect_RXW_VA (0x310)
+
+const DECLSPEC_ALIGN(32) BYTE _GIUIshell_Const[] =
+{
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t MemProtectRXW
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t MemProtectRX
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	     //uint64_t PHooked_func
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,      //uint64_t Pplat_flag
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+	0x53, 0x55, 0x56, 0x57, 							    //push rbx,rbp,rsi,rdi
+	0x48, 0x83, 0xEC, 0x48, 							    //sub rsp, 0x48
+	0x48, 0x48, 0x8B, 0x1D, 0xD0, 0xFF, 0xFF, 0xFF,	        //mov rbx, qword ptr ds:[hksr_ui_ptr]
+	0x48, 0x8D, 0xAC, 0x24, 0x28, 0x00, 0x00, 0x00,         //lea rbp, [rsp + 0x28]
+	0x48, 0x89, 0x4D, 0x08,     			                //mov [rbp + 8], rcx
+	0x48, 0x89, 0x55, 0x10,                                 //mov [rbp + 0x10], rdx
+	0x4C, 0x89, 0x45, 0x18, 							    //mov [rbp + 0x18], r8
+	0x4C, 0x89, 0x4D, 0x20, 							    //mov [rbp + 0x20], r9
+	0x48, 0x89, 0xD9, 								        //mov rcx, rbx
+	0x44, 0xFF, 0x15, 0x9E, 0xFF, 0xFF, 0xFF, 		        //call [MEM_RXW]
+	0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00, 				    //nop
+	0xF3, 0x0F, 0x6F, 0x05, 0x50, 0x00, 0x00, 0x00,	        //movdqu xmm0, [Hooked_pattern]
+	0xF3, 0x0F, 0x7F, 0x03, 							    //movdqu [rbx], xmm0
+	0x48, 0x8B, 0x4D, 0x08,     			                //mov rcx, [rbp + 8]
+	0x48, 0x8B, 0x55, 0x10, 							    //mov rdx, [rbp + 0x10]
+	0xFF, 0xD3, 									        //call rbx
+	0xEB, 0x00,										        //nop
+	0x4C, 0x48, 0x8B, 0x3D, 0x90, 0xFF, 0xFF, 0xFF, 	    //mov rdi, qword ptr ds:[platflag]
+    0x48, 0x89, 0xF9, 
+    0x4C, 0xFF, 0x15, 0x6E, 0xFF, 0xFF, 0xFF, 
+    0xC7, 0x07, 0x02, 0x00, 0x00, 0x00, 
+    0x48, 0x89, 0xF9, 
+    0x4C, 0xFF, 0x15, 0x66, 0xFF, 0xFF, 0xFF, 
+    0x48, 0x89, 0xD9, 
+    0x4C, 0xFF, 0x15, 0x5C, 0xFF, 0xFF, 0xFF, 
+    0x48, 0x83, 0xC4, 0x48,
+    0x5F, 0x5E, 0x5D, 0x5B, 
+    0xC3, 
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC
+};
+
+
+typedef struct hooked_func_struct
+{
+	uint64_t func_addr;
+	uint64_t Reserved;
+    __m128i hookedpart;
+	__m128i orgpart;
+} hooked_func_struct, *Phooked_func_struct;
 
 // 特征搜索
 static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, const char* signature)
@@ -374,13 +451,12 @@ static INLINE void DelWstring(wstring** pwstr)
 
 static BYTE* init_shellcode()
 {
-    uintptr_t _shellcode_buffer = (uintptr_t)VirtualAlloc_Internal(0, 0x1000, PAGE_READWRITE);
+    BYTE* _shellcode_buffer = (BYTE*)VirtualAlloc_Internal(0, 0x1000, PAGE_READWRITE);
     if (_shellcode_buffer == 0)
     {
         return 0;
     }
-    memmove((void*)_shellcode_buffer, &_shellcode_Const, sizeof(_shellcode_Const));
-
+    memmove(_shellcode_buffer, _shellcode_Const, sizeof(_shellcode_Const));
     *(uint32_t*)_shellcode_buffer = GetCurrentProcessId();       //unlocker PID
     {
         char str_openproc[16] = { 0 };
@@ -412,7 +488,6 @@ static BYTE* init_shellcode()
         *(uint64_t*)(_shellcode_buffer + 0x48) = p_readmem;
     }
     *(uint64_t*)(_shellcode_buffer + 0x50) = (uint64_t)(&Sleep);
-    //*(uint64_t*)(_shellcode_buffer + 0x58) = (uint64_t)(&LoadLibraryA);
     *(uint64_t*)(_shellcode_buffer + 0x60) = (uint64_t)(&MessageBoxA);
     *(uint64_t*)(_shellcode_buffer + 0x68) = (uint64_t)(&CloseHandle);
     return (BYTE*)_shellcode_buffer;
@@ -490,12 +565,12 @@ static bool WriteConfig(int fps)
         return false;
     }
     wstring content{0};
-    LPVOID buffer = VirtualAlloc_Internal(0, 0x4000, PAGE_READWRITE);
+    LPVOID buffer = VirtualAlloc_Internal(0, 0x10000, PAGE_READWRITE);
     if (!buffer)
         return false;
     *(DWORD64*)&content = ((DWORD64)buffer);
-    *(DWORD64*)((DWORD64)&content + 0x18) = 0x2000;
-    *(DWORD*)buffer = 0xFEFF;
+    *(DWORD64*)((DWORD64)&content + 0x18) = 0x8000;
+    *(DWORD*)buffer = 0x20FEFF;
     content += L"[Setting]\nGenshinPath=" + GenGamePath + L"\n";
     content += L"HKSRPath=" + HKSRGamePath + L"\n";
     {
@@ -517,6 +592,9 @@ static bool WriteConfig(int fps)
         content += L"EnableErrorMsg=" + std::to_wstring(ErrorMsg_EN) + L"\n";
     }
     {
+        content += L"AutoExit=" + std::to_wstring(AutoExit) + L"\n";
+    }
+    {
         content += L"GameProcessPriority=" + std::to_wstring(ConfigPriorityClass) + L"\n";
     }
     {
@@ -526,8 +604,8 @@ static bool WriteConfig(int fps)
     DWORD written = 0;
     bool re = WriteFile(hFile, buffer, content.size() * 2, &written, nullptr);
     VirtualFree_Internal(buffer, 0, MEM_RELEASE);
-    CloseHandle(hFile);
-    memset(&content, 0, sizeof(wstring));
+    CloseHandle_Internal(hFile);
+	memset(&content, 0, sizeof(wstring));
     return re;
 }
 
@@ -600,7 +678,7 @@ _no_config:
             WaitForSingleObject(hProcess, 2000);
             GetExitCodeProcess(hProcess, &ExitCode);
         }
-        CloseHandle(hProcess);
+        CloseHandle_Internal(hProcess);
 
         //clean screen
         {
@@ -650,6 +728,7 @@ __path_ok:
     Target_set_30 = reader.GetInteger(L"Setting", L"GSTarget30", 60);
     Target_set_60 = reader.GetInteger(L"Setting", L"GSTarget60", 1000);
     ErrorMsg_EN = reader.GetBoolean(L"Setting", L"EnableErrorMsg", 1);
+    AutoExit = reader.GetBoolean(L"Setting", L"AutoExit", 0);
     isHook = reader.GetBoolean(L"Setting", L"IsHookGameSet", 0);
     Tar_Device = reader.GetInteger(L"Setting", L"TargetDevice", DEFAULT_DEVICE);
     ConfigPriorityClass = reader.GetInteger(L"Setting", L"GameProcessPriority", 3);
@@ -798,7 +877,7 @@ struct inject_arg
 {
     uint64_t arg1;//GI fpsptr
     uint64_t arg2;//HKSR uiptr /GIui type
-    uint64_t arg3;//GI platform_sign
+    uint64_t arg3;//GI hook_info_buffer
     uint64_t arg4;//GI hook_func
 };
 // Hotpatch
@@ -812,6 +891,11 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
     {
         Show_Error_Msg(L"initcode failed!");
         return 0;
+    }
+    //Disable errmsg
+    if (AutoExit)
+    {
+        *(uint16_t*)(_sc_buffer + 0x16E) = 0x1AEB;
     }
 
     //genshin_get_gameset
@@ -832,55 +916,108 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
     }
     if (arg->arg2 && (!isGenshin))
     {
-        *(uint64_t*)(_sc_buffer + 0x20) = arg->arg2;
+        *(uint64_t*)(_sc_buffer + 0x20) = arg->arg2;//HKSR mob
         *(uint32_t*)(_sc_buffer + 0x28) = 2;
         *(uint64_t*)(_sc_buffer + 0x30) = (uint64_t)__Tar_proc_buffer + 0x1E0;
     }
     if (isGenshin && Use_mobile_UI)
     {
-        if (1)
+        inject_arg* GI_Func = (inject_arg*)arg->arg4;
+        LPVOID __payload_ui = VirtualAllocEx_Internal(Tar_handle, NULL, 0x1000, PAGE_READWRITE);
+		if (!__payload_ui)
+		{
+			Show_Error_Msg(L"Alloc mem Fail! (GIui)");
+			goto __exit_block;
+		}
         {
+            char str_memprotect[16] = { 0 };
+            *(DWORD64*)(&str_memprotect) = 0xAF939E8A8B8D96A9;
+            *(DWORD64*)(&str_memprotect[8]) = 0x8EFF8B9C9A8B908D;
+            decbyte(str_memprotect, 2);
+            uint64_t API_memprotect = (uint64_t)GetProcAddress_Internal((HMODULE)~Kernel32_ADDR, str_memprotect);
+            if (!API_memprotect)
             {
-                char str_memprotect[16] = { 0 };
-                *(DWORD64*)(&str_memprotect) = 0xAF939E8A8B8D96A9;
-                *(DWORD64*)(&str_memprotect[8]) = 0x8EFF8B9C9A8B908D;
-                decbyte(str_memprotect, 2);
-                uint64_t API_memprotect = (uint64_t)GetProcAddress_Internal((HMODULE)~Kernel32_ADDR, str_memprotect);
-                if (!API_memprotect)
-                {
-                    Show_Error_Msg(L"Fail getFunction (memprotect)");
-                    goto __exit_block;
-                }
-                *(uint64_t*)(_sc_buffer + 0x58) = API_memprotect;
+                Show_Error_Msg(L"Fail getFunction (memprotect)");
+                goto __exit_block;
             }
+            *(uint64_t*)(_sc_buffer + 0x58) = API_memprotect;
+        }
+        if(1)
+        {
+            BYTE* ui_payload_temp = (BYTE*)VirtualAlloc_Internal(0, 0x1000, PAGE_READWRITE);
+            if (!ui_payload_temp)
             {
-                *(uint64_t*)(_sc_buffer + sizeof(_shellcode_Const)) = arg->arg3;//p_platform_
-                *(uint64_t*)(_sc_buffer + sizeof(_shellcode_Const) + 8) = arg->arg4;//func
-                if (!ReadProcessMemoryInternal(Tar_handle, (void*)arg->arg4, (_sc_buffer + sizeof(_shellcode_Const) + 0x10), 0x10, 0))
-                {
-                    Show_Error_Msg(L"Failed hook (GIui)");
-                    goto __exit_block;
-                }
-                uint64_t* hook_pa = (uint64_t*)(_sc_buffer + sizeof(_shellcode_Const) + 0x20);
-                *hook_pa = 0x225FF;
-                *(hook_pa + 1) = ((uint64_t)__Tar_proc_buffer + hooked_func_VA);
-                if (!WriteProcessMemoryInternal(Tar_handle, (void*)arg->arg4, hook_pa, 0x10, 0))
-                {
-                    Show_Error_Msg(L"Failed hook (GIui)");
-                    goto __exit_block;
-                }
+                Show_Error_Msg(L"Alloc mem failed! (GIui)");
+                goto __exit_block;
             }
-            // platform_var = arg->arg2;
-            if (!WriteProcessMemoryInternal(Tar_handle, (void*)arg->arg3, &arg->arg2, 4, 0))
+            
+            memmove(ui_payload_temp, &_GIUIshell_Const, sizeof(_GIUIshell_Const));
+            *(uint64_t*)(ui_payload_temp) = ((uint64_t)__Tar_proc_buffer + mem_protect_RXW_VA);
+            *(uint64_t*)(ui_payload_temp + 0x8) = ((uint64_t)__Tar_proc_buffer + mem_protect_RXW_VA + 0x30);
+            *(uint64_t*)(ui_payload_temp + 0x10) = GI_Func->arg4;
+            *(uint64_t*)(ui_payload_temp + 0x18) = GI_Func->arg1 + 1;//plat_flag func_va
+
+            if (!ReadProcessMemoryInternal(Tar_handle, (void*)GI_Func->arg4, ui_payload_temp + sizeof(_GIUIshell_Const), 0x10, 0))
+            {
+                Show_Error_Msg(L"Failed ReadFunc 0 (GIui)");
+                goto __exit_block;
+            }
+            uint64_t hookpart[2] = { 0x225FF,  ((uint64_t)__payload_ui + 0x30) };
+            if (!WriteProcessMemoryInternal(Tar_handle, (void*)GI_Func->arg4, &hookpart, 0x10, 0))
+            {
+                Show_Error_Msg(L"Failed write payload 0(GIui)");
+                goto __exit_block;
+            }
+
+            if (!WriteProcessMemoryInternal(Tar_handle, (void*)(GI_Func->arg1 + 1), &arg->arg2, 4, 0))
+            {
+                Show_Error_Msg(L"Failed write payload 0(GIui)");
+                goto __exit_block;
+            }
+            
+            Phooked_func_struct Psettingbug = (Phooked_func_struct)(ui_payload_temp + 0x600);
+            Psettingbug->func_addr = GI_Func->arg3;
+            //settingbugfix
+            if (!ReadProcessMemoryInternal(Tar_handle, (void*)GI_Func->arg3, (void*)&Psettingbug->orgpart, 0x10, 0))
+            {
+                Show_Error_Msg(L"Failed ReadFunc 1 (GIui)");
+                goto __exit_block;
+            }
+			Psettingbug->hookedpart = Psettingbug->orgpart;
+			*(BYTE*)((uint64_t)(&Psettingbug->hookedpart) + 2) = 0xEB;
+
+            //inject to game
+            if (!WriteProcessMemoryInternal(Tar_handle, __payload_ui, ui_payload_temp, 0x1000, 0))
+            {
+                Show_Error_Msg(L"Failed write payload 1(GIui)");
+                goto __exit_block;
+            }
+			VirtualFree_Internal(ui_payload_temp, 0, MEM_RELEASE);
+            if (!VirtualProtect_Internal(Tar_handle, __payload_ui, 0x1000, PAGE_EXECUTE_READ, 0))
+            {
+                Show_Error_Msg(L"Failed change RX (GIui)");
+                goto __exit_block;
+            }
+        }
+        //hookloginverfiy
+        {
+            *(uint64_t*)(_sc_buffer + sizeof(_shellcode_Const)) = ((uint64_t)__payload_ui + 0x600);//Hookinfo_buffer
+            *(uint64_t*)(_sc_buffer + sizeof(_shellcode_Const) + 8) = GI_Func->arg2;//func
+            if (!ReadProcessMemoryInternal(Tar_handle, (void*)GI_Func->arg2, (_sc_buffer + sizeof(_shellcode_Const) + 0x10), 0x10, 0))
+            {
+                Show_Error_Msg(L"Failed ReadFunc (GIui)");
+                goto __exit_block;
+            }
+            uint64_t* hook_pa = (uint64_t*)(_sc_buffer + sizeof(_shellcode_Const) + 0x20);
+            *hook_pa = 0x225FF;
+            *(hook_pa + 1) = ((uint64_t)__Tar_proc_buffer + hooked_func_VA);
+            if (!WriteProcessMemoryInternal(Tar_handle, (void*)GI_Func->arg2, hook_pa, 0x10, 0))
             {
                 Show_Error_Msg(L"Failed hook (GIui)");
                 goto __exit_block;
             }
         }
-        else
-        {
-            Show_Error_Msg(L"Failed protect (GIui)");
-        }
+        
     }
 __exit_block:
 
@@ -898,7 +1035,7 @@ __exit_block:
             Show_Error_Msg(L"Create SyncThread Fail! ");
             return 0;
         }
-        CloseHandle(temp);
+        CloseHandle_Internal(temp);
         return ((uint64_t)__Tar_proc_buffer);
     }
 	return 0;
@@ -924,10 +1061,10 @@ static HMODULE RemoteDll_Inject(HANDLE Tar_handle, LPCWSTR DllPath)
                 break;
             }
         }
-        HANDLE file_Handle = CreateFileW(DllPath, GENERIC_READ, NULL, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-        if (file_Handle != INVALID_HANDLE_VALUE)
+        //HANDLE file_Handle = CreateFileW(DllPath, GENERIC_READ, NULL, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (GetFileAttributesW(DllPath) != INVALID_FILE_ATTRIBUTES)
         {
-            CloseHandle(file_Handle);
+            //CloseHandle_Internal(file_Handle);
             goto __inject_proc;
         }
         return 0;
@@ -973,11 +1110,11 @@ __inject_proc:
                     if (WaitForSingleObject(hThread, 60000))
                     {
                         Show_Error_Msg(L"Dll load Wait Time out!");
-                        CloseHandle(hThread);
+                        CloseHandle_Internal(hThread);
                         return 0;
                     }
                     ReadProcessMemoryInternal(Tar_handle, ((BYTE*)buffer) + 0x1000, &result, 0x8, 0);
-                    CloseHandle(hThread);
+                    CloseHandle_Internal(hThread);
                 }
             }
         }
@@ -1137,11 +1274,10 @@ int main(/*int argc, char** argvA*/void)
                 HANDLE tempHandle = OpenProcess_Internal(PROCESS_TERMINATE | SYNCHRONIZE, pid);
                 TerminateProcess_Internal(tempHandle, 0);
                 WaitForSingleObject(tempHandle, 2000);
-                CloseHandle(tempHandle);
+                CloseHandle_Internal(tempHandle);
             }
             goto _wait_process_close;
         }
-        __nop();
     }
 
     if (isGenshin)
@@ -1156,7 +1292,7 @@ int main(/*int argc, char** argvA*/void)
             if (Size < 0x800000)
                 is_old_version = 1;
             else is_old_version = 0;
-            CloseHandle(file_Handle);
+            CloseHandle_Internal(file_Handle);
         }
         else
         {
@@ -1183,6 +1319,11 @@ int main(/*int argc, char** argvA*/void)
     free(barg.Game_Arg);
 
     inject_arg injectarg = { 0 };
+    inject_arg GI_Func = { 0 };
+    //GI_Func.arg1 plat_flag
+    //GI_Func.arg2 login_func
+    //GI_Func.arg3 restore_Func
+	//GI_Func.arg4 Reserved
     if ((isGenshin == 0) && Use_mobile_UI)
     {
         injectarg.arg2 = Hksr_ENmobile_get_Ptr(pi->hProcess, ProcessDir->c_str());
@@ -1198,7 +1339,7 @@ int main(/*int argc, char** argvA*/void)
         {
             Show_Error_Msg(L"VirtualAlloc Failed! (PE_buffer)");
             TerminateProcess_Internal(pi->hProcess, 0);
-            CloseHandle(pi->hProcess);
+            CloseHandle_Internal(pi->hProcess);
             return 0;
         }
 
@@ -1225,7 +1366,7 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"Get Target Section Fail! (text)");
         VirtualFree_Internal(_mbase_PE_buffer, 0, MEM_RELEASE);
         TerminateProcess_Internal(pi->hProcess, 0);
-        CloseHandle(pi->hProcess);
+        CloseHandle_Internal(pi->hProcess);
         return 0;
     }
 
@@ -1236,7 +1377,7 @@ __Get_target_sec:
     {
         Show_Error_Msg(L"Malloc Failed! (text)");
         TerminateProcess_Internal(pi->hProcess, 0);
-        CloseHandle(pi->hProcess);
+        CloseHandle_Internal(pi->hProcess);
         return 0;
     }
     // 把整个模块读出来
@@ -1245,7 +1386,7 @@ __Get_target_sec:
         Show_Error_Msg(L"Readmem Fail ! (text)");
         VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
         TerminateProcess_Internal(pi->hProcess, 0);
-        CloseHandle(pi->hProcess);
+        CloseHandle_Internal(pi->hProcess);
         return 0;
     }
    
@@ -1305,7 +1446,7 @@ __Get_target_sec:
         Show_Error_Msg(L"Genshin Pattern Outdated!\nPlase wait new update in github.\n\n");
         VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
         TerminateProcess_Internal(pi->hProcess, 0);
-        CloseHandle(pi->hProcess);
+        CloseHandle_Internal(pi->hProcess);
         return 0;
     }
     else
@@ -1342,7 +1483,7 @@ __Get_target_sec:
         Show_Error_Msg(L"StarRail Pattern Outdated!\nPlase wait new update in github.\n\n");
         VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
         TerminateProcess_Internal(pi->hProcess, 0);
-        CloseHandle(pi->hProcess);
+        CloseHandle_Internal(pi->hProcess);
         return 0;
     }
     //-------------------------------------------------------------------------------------------------------------------------------------------------//
@@ -1359,8 +1500,8 @@ __genshin_il:
                 int64_t rip = address;
                 rip += 1;
                 rip += *(int32_t*)(rip) + 4 + 1;// +1 jmp va
-                rip += *(int32_t*)(rip) + 4 + 1;// +1 mov eax va
-                injectarg.arg3 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                rip += *(int32_t*)(rip) + 4;
+                GI_Func.arg1 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
             }
             else
             {
@@ -1405,19 +1546,48 @@ __genshin_il:
         }
         if (Use_mobile_UI)
         {
-            //E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 8B 0D //hookFunc
+            //E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 8B 0D //loginverfiy
             address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 8B 0D");
             if (address)
             {
                 int64_t rip = address;
                 rip += 0x1;
                 rip += *(int32_t*)(rip) + 4;
-                injectarg.arg4 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                GI_Func.arg2 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
                 injectarg.arg2 = Tar_Device;
             }
             else
             {
                 Use_mobile_UI = 0;
+            }
+            //setting bug
+            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? 83 F8 02 75 0B 48 89 F1 48 89 FA E8");
+			if (address)
+			{
+				int64_t rip = address;
+				rip += 0x6;
+                GI_Func.arg3 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+			}
+			else
+			{
+				Use_mobile_UI = 0;
+			}
+            //login bug
+            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 89 F1 E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 80 B9 ?? ?? ?? ?? 00");
+            if (address)
+            {
+                int64_t rip = address;
+				rip += 0xC;
+				rip += *(int32_t*)(rip) + 4;
+                GI_Func.arg4 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            }
+            else
+            {
+                Use_mobile_UI = 0;
+            }
+            if (Use_mobile_UI)
+            {
+				injectarg.arg4 = (uintptr_t)(&GI_Func);
             }
         }
         if (isHook)
@@ -1442,7 +1612,7 @@ __Continue:
     {
         Show_Error_Msg(L"Inject Fail !\n");
         TerminateProcess_Internal(pi->hProcess, 0);
-        CloseHandle(pi->hProcess);
+        CloseHandle_Internal(pi->hProcess);
         return 0;
     }
 
@@ -1464,68 +1634,78 @@ __Continue:
     VirtualFree_Internal(_mbase_PE_buffer, 0, MEM_RELEASE);
     VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
     
-    ResumeThread(pi->hThread);
-    CloseHandle(pi->hThread);
+	SetThreadAffinityMask(pi->hThread, 0x1);
+	SetThreadPriority(pi->hThread, THREAD_PRIORITY_HIGHEST);
+    ResumeThread_Internal(pi->hThread);
+    CloseHandle_Internal(pi->hThread);
     
     SetPriorityClass((HANDLE) -1, NORMAL_PRIORITY_CLASS);
 
-    wprintf_s(L"PID: %d\n \nDone! \n \nUse Right Ctrl Key with ↑↓←→ key to change fps limted\n使用键盘上的右Ctrl键和方向键调节帧率限制\n\n\n  Rctrl + ↑ : +20\n  Rctrl + ↓ : -20\n  Rctrl + ← : -2\n  Rctrl + → : +2\n\n", pi->dwProcessId);
-    
-    // 创建printf线程
-    HANDLE hdisplay = CreateRemoteThreadEx_Internal((HANDLE) - 1, 0, Thread_display, 0);
-    if (!hdisplay)
-        Show_Error_Msg(L"Create Thread <Thread_display> Error! ");
-
-    DWORD dwExitCode = STILL_ACTIVE;
-    uint32_t fps = FpsValue;
-    uint32_t cycle_counter = 0;
-    while (1)   // handle key input
+    if(!AutoExit)
     {
-        NtSleep(50);
-        cycle_counter++;
-        GetExitCodeProcess(pi->hProcess, &dwExitCode);
-        if (dwExitCode != STILL_ACTIVE)
+        wprintf_s(L"PID: %d\n \nDone! \n \nUse ↑ ↓ ← → key to change fps limted\n使用键盘上的方向键调节帧率限制\n\n\n  UpKey : +20\n  DownKey : -20\n  LeftKey : -2\n  RightKey : +2\n\n", pi->dwProcessId);
+
+        // 创建printf线程
+        HANDLE hdisplay = CreateRemoteThreadEx_Internal((HANDLE)-1, 0, Thread_display, 0);
+        if (!hdisplay)
+            Show_Error_Msg(L"Create Thread <Thread_display> Error! ");
+
+        DWORD dwExitCode = STILL_ACTIVE;
+        uint32_t fps = FpsValue;
+        uint32_t cycle_counter = 0;
+        while (1)   // handle key input
         {
-            printf_s("\nGame Terminated !\n");
-            break;
+            NtSleep(50);
+            cycle_counter++;
+            GetExitCodeProcess(pi->hProcess, &dwExitCode);
+            if (dwExitCode != STILL_ACTIVE)
+            {
+                printf_s("\nGame Terminated !\n");
+                break;
+            }
+            if ((FpsValue != fps) && (cycle_counter >= 16))
+            {
+                WriteConfig(fps);
+                FpsValue = fps;
+                cycle_counter = 0;
+            }
+            FpsValue = fps;   //Sync_with_ingame_thread
+            if ((GetForegroundWindow() != _console_HWND) && (isAntimiss == 1))
+            {
+                continue;
+            }
+            if (GetAsyncKeyState(KEY_DECREASE) & 1)
+            {
+                fps -= 20;
+            }
+            if (GetAsyncKeyState(KEY_DECREASE_SMALL) & 1)
+            {
+                fps -= 2;
+            }
+            if (GetAsyncKeyState(KEY_INCREASE) & 1)
+            {
+                fps += 20;
+            }
+            if (GetAsyncKeyState(KEY_INCREASE_SMALL) & 1)
+            {
+                fps += 2;
+            }
+            if (fps <= 10)
+            {
+                fps = 10;
+            }
         }
-        if ((FpsValue != fps) && (cycle_counter >= 16))
-        {
-            WriteConfig(fps);
-            FpsValue = fps;
-            cycle_counter = 0;
-        }
-        FpsValue = fps;   //Sync_with_ingame_thread
-        if ((GetForegroundWindow() != _console_HWND) && (isAntimiss == 1))
-        {
-            continue;
-        }
-        if (GetAsyncKeyState(KEY_DECREASE) & 1 && GetAsyncKeyState(VK_RCONTROL) & 0x8000)
-        {
-            fps -= 20;
-        }
-        if (GetAsyncKeyState(KEY_DECREASE_SMALL) & 1 && GetAsyncKeyState(VK_RCONTROL) & 0x8000)
-        {
-            fps -= 2;
-        }
-        if (GetAsyncKeyState(KEY_INCREASE) & 1 && GetAsyncKeyState(VK_RCONTROL) & 0x8000)
-        {
-            fps += 20;
-        }
-        if (GetAsyncKeyState(KEY_INCREASE_SMALL) & 1 && GetAsyncKeyState(VK_RCONTROL) & 0x8000)
-        {
-            fps += 2;
-        }
-        if (fps <= 10)
-        {
-            fps = 10;
-        }
+        Process_endstate = 1;
+        WaitForSingleObject(hdisplay, INFINITE);
+        CloseHandle_Internal(hdisplay);
     }
-    CloseHandle(pi->hProcess);
+    else
+    {
+        NtSleep(1000);
+    }
+    CloseHandle_Internal(pi->hProcess);
     free(boot_info);
-    Process_endstate = 1;
-    WaitForSingleObject(hdisplay, INFINITE);
-    CloseHandle(hdisplay);
+    
     
     return 1;
 }

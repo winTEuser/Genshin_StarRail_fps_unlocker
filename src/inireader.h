@@ -85,7 +85,7 @@ extern "C" {
 
 /* Maximum line length for any line in INI file. */
 #ifndef INI_MAX_LINE
-#define INI_MAX_LINE 0x2000
+#define INI_MAX_LINE 0x4000
 #endif
 
 #ifdef __cplusplus
@@ -111,8 +111,8 @@ https://github.com/benhoyt/inih
 #include <stdlib.h>
 
 
-#define MAX_SECTION 0x1000
-#define MAX_NAME 0x1000
+#define MAX_SECTION 0x10000
+#define MAX_NAME 0x2000
 
 static bool isspace0(wchar_t wcstr)
 {
@@ -218,6 +218,7 @@ inline static bool wcstrcmp0(const wchar_t* fir, const wchar_t* sec)
 static wchar_t* Read_line(wchar_t* deststr, size_t num, wchar_t** stream_rawstr)
 {
     wchar_t* rawstr = 0;
+    num /= 2;
     wchar_t* nextlineptr = *stream_rawstr;
     if (nextlineptr)
         rawstr = nextlineptr;
@@ -226,7 +227,7 @@ static wchar_t* Read_line(wchar_t* deststr, size_t num, wchar_t** stream_rawstr)
     if (!rawstr) return 0;
     if (!*(rawstr)) return 0;
     size_t i = 0;
-    while ((*(rawstr + i) != 0x0A) && (*(rawstr + i) != 0))
+    while ((*(rawstr + i) != 0x0A) && (*(rawstr + i) != 0) && (i <= num))
     {
         *(deststr + i) = *(rawstr + i);
         i++;
