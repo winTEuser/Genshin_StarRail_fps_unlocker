@@ -776,6 +776,7 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
     }
     int argNum = 0;
     LPWSTR* argvW = CommandLineToArgvW(GetCommandLineW(), &argNum);
+    //win32arg maxsize 8191
     std::wstring CommandLine{};
     if (argNum >= 2)
     {
@@ -784,7 +785,7 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
         wchar_t boot_starrail[] = L"-hksr";
         wchar_t loadLib[] = L"-loadlib";
         wchar_t Use_Mobile_UI[] = L"-enablemobileui";
-        wstring* temparg = NewWstring(0x400);
+        wstring* temparg = NewWstring(0x1000);
         *temparg = argvW[1];
         towlower0((wchar_t*)temparg->c_str());
         if (*temparg == boot_genshin)
@@ -849,20 +850,21 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
     }
     else
     {
-        int gtype = MessageBoxW(_console_HWND, L"Genshin click yes ,StarRail click no ,Cancel to Quit \n启动原神选是，崩铁选否，取消退出 \n", L"GameSelect ", 0x23);
-        if (gtype == 2)
+        DWORD gtype = MessageBoxW_Internal(L"Genshin click yes ,StarRail click no ,Cancel to Quit \n启动原神选是，崩铁选否，取消退出 \n", L"GameSelect ", 0x23);
+        if (gtype == 3)
         {
             return 0;
         }
-        if (gtype == 6)
+        if (gtype == 8)
         {
             SetConsoleTitleA("This console control GenshinFPS");
         }
-        if (gtype == 7)
+        if (gtype == 5)
         {
             isGenshin = 0;
             SetConsoleTitleA("This console control HKStarRailFPS");
         }
+        //?
     }
     arg->Game_Arg = (LPWSTR)malloc(0x2000);
     if (!arg->Game_Arg)
@@ -872,14 +874,22 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
     return 1;
 }
 
-
-struct inject_arg
+typedef struct Hook_func_list
 {
-    uint64_t arg1;//GI fpsptr
-    uint64_t arg2;//HKSR uiptr /GIui type
-    uint64_t arg3;//GI hook_info_buffer
-    uint64_t arg4;//GI hook_func
+    uint64_t Pfunc_device_type;//plat_flag
+    uint64_t Unhook_func;//hook_bootui
+    uint64_t setbug_fix; //func_patch
+    uint64_t nop;  
+}Hook_func_list, *PHook_func_list;
+
+typedef struct inject_arg
+{
+    uint64_t Pfps;//GI-fps-set
+    uint64_t Bootui;//HKSR ui /GIui type
+    uint64_t verfiy;//code verfiy
+    PHook_func_list PfuncList;//Phook_funcPtr_list
 };
+
 // Hotpatch
 static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* arg)
 {
@@ -901,7 +911,7 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
     //genshin_get_gameset
     if (isGenshin && isHook)
     {
-        *(uint64_t*)(_sc_buffer + 0x10) = arg->arg1;
+        *(uint64_t*)(_sc_buffer + 0x10) = arg->Pfps;
     }
 
     //shellcode patch
@@ -914,22 +924,18 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
         Show_Error_Msg(L"AllocEx Fail! ");
         return 0;
     }
-    if (arg->arg2 && (!isGenshin))
+    if (arg->Bootui && (!isGenshin))
     {
-        *(uint64_t*)(_sc_buffer + 0x20) = arg->arg2;//HKSR mob
+        *(uint64_t*)(_sc_buffer + 0x20) = arg->Bootui;//HKSR mob
         *(uint32_t*)(_sc_buffer + 0x28) = 2;
         *(uint64_t*)(_sc_buffer + 0x30) = (uint64_t)__Tar_proc_buffer + 0x1E0;
     }
-    if (isGenshin && Use_mobile_UI)
+    if (arg->PfuncList)
     {
-        inject_arg* GI_Func = (inject_arg*)arg->arg4;
-        LPVOID __payload_ui = VirtualAllocEx_Internal(Tar_handle, NULL, 0x1000, PAGE_READWRITE);
-		if (!__payload_ui)
-		{
-			Show_Error_Msg(L"Alloc mem Fail! (GIui)");
-			goto __exit_block;
-		}
+        PHook_func_list GI_Func = (PHook_func_list)arg->PfuncList;
+        if(1)
         {
+            //init_memapi
             char str_memprotect[16] = { 0 };
             *(DWORD64*)(&str_memprotect) = 0xAF939E8A8B8D96A9;
             *(DWORD64*)(&str_memprotect[8]) = 0x8EFF8B9C9A8B908D;
@@ -942,43 +948,48 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
             }
             *(uint64_t*)(_sc_buffer + 0x58) = API_memprotect;
         }
-        if(1)
+        if(GI_Func->Pfunc_device_type)
         {
+            LPVOID __payload_ui = VirtualAllocEx_Internal(Tar_handle, NULL, 0x1000, PAGE_READWRITE);
+            if (!__payload_ui)
+            {
+                Show_Error_Msg(L"Alloc mem Fail! (GIui) 0");
+                goto __exit_block;
+            }
             BYTE* ui_payload_temp = (BYTE*)VirtualAlloc_Internal(0, 0x1000, PAGE_READWRITE);
             if (!ui_payload_temp)
             {
                 Show_Error_Msg(L"Alloc mem failed! (GIui)");
                 goto __exit_block;
             }
-            
             memmove(ui_payload_temp, &_GIUIshell_Const, sizeof(_GIUIshell_Const));
             *(uint64_t*)(ui_payload_temp) = ((uint64_t)__Tar_proc_buffer + mem_protect_RXW_VA);
             *(uint64_t*)(ui_payload_temp + 0x8) = ((uint64_t)__Tar_proc_buffer + mem_protect_RXW_VA + 0x30);
-            *(uint64_t*)(ui_payload_temp + 0x10) = GI_Func->arg4;
-            *(uint64_t*)(ui_payload_temp + 0x18) = GI_Func->arg1 + 1;//plat_flag func_va
+            *(uint64_t*)(ui_payload_temp + 0x10) = GI_Func->Unhook_func;
+            *(uint64_t*)(ui_payload_temp + 0x18) = GI_Func->Pfunc_device_type + 1;//plat_flag func_va
 
-            if (!ReadProcessMemoryInternal(Tar_handle, (void*)GI_Func->arg4, ui_payload_temp + sizeof(_GIUIshell_Const), 0x10, 0))
+            if (!ReadProcessMemoryInternal(Tar_handle, (void*)GI_Func->Unhook_func, ui_payload_temp + sizeof(_GIUIshell_Const), 0x10, 0))
             {
                 Show_Error_Msg(L"Failed ReadFunc 0 (GIui)");
                 goto __exit_block;
             }
             uint64_t hookpart[2] = { 0x225FF,  ((uint64_t)__payload_ui + 0x30) };
-            if (!WriteProcessMemoryInternal(Tar_handle, (void*)GI_Func->arg4, &hookpart, 0x10, 0))
+            if (!WriteProcessMemoryInternal(Tar_handle, (void*)GI_Func->Unhook_func, &hookpart, 0x10, 0))
             {
                 Show_Error_Msg(L"Failed write payload 0(GIui)");
                 goto __exit_block;
             }
 
-            if (!WriteProcessMemoryInternal(Tar_handle, (void*)(GI_Func->arg1 + 1), &arg->arg2, 4, 0))
+            if (!WriteProcessMemoryInternal(Tar_handle, (void*)(GI_Func->Pfunc_device_type + 1), &arg->Bootui, 4, 0))
             {
                 Show_Error_Msg(L"Failed write payload 0(GIui)");
                 goto __exit_block;
             }
             
             Phooked_func_struct Psettingbug = (Phooked_func_struct)(ui_payload_temp + 0x600);
-            Psettingbug->func_addr = GI_Func->arg3;
+            Psettingbug->func_addr = GI_Func->setbug_fix;
             //settingbugfix
-            if (!ReadProcessMemoryInternal(Tar_handle, (void*)GI_Func->arg3, (void*)&Psettingbug->orgpart, 0x10, 0))
+            if (!ReadProcessMemoryInternal(Tar_handle, (void*)GI_Func->setbug_fix, (void*)&Psettingbug->orgpart, 0x10, 0))
             {
                 Show_Error_Msg(L"Failed ReadFunc 1 (GIui)");
                 goto __exit_block;
@@ -998,12 +1009,12 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
                 Show_Error_Msg(L"Failed change RX (GIui)");
                 goto __exit_block;
             }
-        }
-        //hookloginverfiy
-        {
             *(uint64_t*)(_sc_buffer + sizeof(_shellcode_Const)) = ((uint64_t)__payload_ui + 0x600);//Hookinfo_buffer
-            *(uint64_t*)(_sc_buffer + sizeof(_shellcode_Const) + 8) = GI_Func->arg2;//func
-            if (!ReadProcessMemoryInternal(Tar_handle, (void*)GI_Func->arg2, (_sc_buffer + sizeof(_shellcode_Const) + 0x10), 0x10, 0))
+        }
+        if(arg->verfiy)//hookverfiy
+        {
+            *(uint64_t*)(_sc_buffer + sizeof(_shellcode_Const) + 8) = arg->verfiy;//func
+            if (!ReadProcessMemoryInternal(Tar_handle, (void*)arg->verfiy, (_sc_buffer + sizeof(_shellcode_Const) + 0x10), 0x10, 0))
             {
                 Show_Error_Msg(L"Failed ReadFunc (GIui)");
                 goto __exit_block;
@@ -1011,13 +1022,12 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
             uint64_t* hook_pa = (uint64_t*)(_sc_buffer + sizeof(_shellcode_Const) + 0x20);
             *hook_pa = 0x225FF;
             *(hook_pa + 1) = ((uint64_t)__Tar_proc_buffer + hooked_func_VA);
-            if (!WriteProcessMemoryInternal(Tar_handle, (void*)GI_Func->arg2, hook_pa, 0x10, 0))
+            if (!WriteProcessMemoryInternal(Tar_handle, (void*)arg->verfiy, hook_pa, 0x10, 0))
             {
                 Show_Error_Msg(L"Failed hook (GIui)");
                 goto __exit_block;
             }
         }
-        
     }
 __exit_block:
 
@@ -1170,7 +1180,7 @@ static uint64_t Hksr_ENmobile_get_Ptr(HANDLE Tar_handle, LPCWSTR GPath)
         //      75 05 E8 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 28 C3          
         DWORD64 tar_addr;
         DWORD64 address;
-        if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "80 B9 ?? ?? ?? ?? 00 74 46 C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3"))
+        if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "80 B9 ?? ?? ?? ?? 00 74 ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3"))
         {
             tar_addr = address + 11;
         }
@@ -1236,7 +1246,7 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
     
-    wprintf_s(L"FPS unlocker Debug\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
+    wprintf_s(L"FPS unlocker 2.8.9\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
 
     if (NTSTATUS r = init_API())
     {
@@ -1268,8 +1278,8 @@ int main(/*int argc, char** argvA*/void)
         DWORD pid = GetPID(procname->c_str());
         if (pid)
         {
-            int state = MessageBoxW(NULL, L"Game has being running! \n游戏已在运行！\nYou can click Yes to auto close game or click Cancel to manually close. \n点击确定自动关闭游戏或手动关闭游戏后点取消\n", L"Error", 0x11);
-            if (state == 1)
+            int state = MessageBoxW_Internal(L"Game has being running! \n游戏已在运行！\nYou can click Yes to auto close game or click Cancel to manually close. \n点击确定自动关闭游戏或手动关闭游戏后点取消\n", L"Error", 0x11);
+            if (state == 6)
             {
                 HANDLE tempHandle = OpenProcess_Internal(PROCESS_TERMINATE | SYNCHRONIZE, pid);
                 TerminateProcess_Internal(tempHandle, 0);
@@ -1319,14 +1329,11 @@ int main(/*int argc, char** argvA*/void)
     free(barg.Game_Arg);
 
     inject_arg injectarg = { 0 };
-    inject_arg GI_Func = { 0 };
-    //GI_Func.arg1 plat_flag
-    //GI_Func.arg2 login_func
-    //GI_Func.arg3 restore_Func
-	//GI_Func.arg4 Reserved
+    Hook_func_list GI_Func = { 0 };
+    
     if ((isGenshin == 0) && Use_mobile_UI)
     {
-        injectarg.arg2 = Hksr_ENmobile_get_Ptr(pi->hProcess, ProcessDir->c_str());
+        injectarg.Bootui = Hksr_ENmobile_get_Ptr(pi->hProcess, ProcessDir->c_str());
     }
     //加载和获取模块信息
     LPVOID _mbase_PE_buffer = 0;
@@ -1405,6 +1412,23 @@ __Get_target_sec:
     uintptr_t address = 0;
     if (isGenshin)
     {
+        if (Use_mobile_UI)
+        {
+            //platform_flag_func
+            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? 48 8B 7D 40 89 87 ?? ?? ?? ?? E8 ?? ?? ?? ?? 4C 8B C0");
+            if (address)
+            {
+                int64_t rip = address;
+                rip += 1;
+                rip += *(int32_t*)(rip)+4 + 1;// +1 jmp va
+                rip += *(int32_t*)(rip)+4;
+                GI_Func.Pfunc_device_type = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            }
+            else
+            {
+                Use_mobile_UI = 0;
+            }
+        }
         address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "8B 0D ?? ?? ?? ?? 66 0F 6E C9 0F 5B C9");//5.5
         if (address)
         {
@@ -1491,23 +1515,6 @@ __Get_target_sec:
 __genshin_il:
     if(Use_mobile_UI || isHook)
     {
-        if (Use_mobile_UI)
-        {
-            //E8 ?? ?? ?? ?? 48 8B 7D 40 89 87 ?? ?? ?? ?? E8 ?? ?? ?? ?? 4C 8B C0  platform_flag
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? 48 8B 7D 40 89 87 ?? ?? ?? ?? E8 ?? ?? ?? ?? 4C 8B C0");
-            if (address)
-            {
-                int64_t rip = address;
-                rip += 1;
-                rip += *(int32_t*)(rip) + 4 + 1;// +1 jmp va
-                rip += *(int32_t*)(rip) + 4;
-                GI_Func.arg1 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-            }
-            else
-            {
-                Use_mobile_UI = 0;
-            }
-        }
         uintptr_t UA_baseAddr = Unityplayer_baseAddr;
         if (is_old_version)
         {
@@ -1527,6 +1534,7 @@ __genshin_il:
             goto __Get_sec_ok;
         }
         Show_Error_Msg(L"Get Section Fail! (il2cpp_GI)");
+
     __procfail:
         isHook = 0;
         goto __Continue;
@@ -1544,52 +1552,6 @@ __genshin_il:
             Show_Error_Msg(L"Readmem Fail ! (il2cpp_GI)");
             goto __procfail;
         }
-        if (Use_mobile_UI)
-        {
-            //E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 8B 0D //loginverfiy
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 8B 0D");
-            if (address)
-            {
-                int64_t rip = address;
-                rip += 0x1;
-                rip += *(int32_t*)(rip) + 4;
-                GI_Func.arg2 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-                injectarg.arg2 = Tar_Device;
-            }
-            else
-            {
-                Use_mobile_UI = 0;
-            }
-            //setting bug
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? 83 F8 02 75 0B 48 89 F1 48 89 FA E8");
-			if (address)
-			{
-				int64_t rip = address;
-				rip += 0x6;
-                GI_Func.arg3 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-			}
-			else
-			{
-				Use_mobile_UI = 0;
-			}
-            //login bug
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 89 F1 E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 80 B9 ?? ?? ?? ?? 00");
-            if (address)
-            {
-                int64_t rip = address;
-				rip += 0xC;
-				rip += *(int32_t*)(rip) + 4;
-                GI_Func.arg4 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-            }
-            else
-            {
-                Use_mobile_UI = 0;
-            }
-            if (Use_mobile_UI)
-            {
-				injectarg.arg4 = (uintptr_t)(&GI_Func);
-            }
-        }
         if (isHook)
         {
             address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 89 F1 E8 ?? ?? ?? ?? 8B 3D ?? ?? ?? ?? 48 8B 0D");
@@ -1599,11 +1561,62 @@ __genshin_il:
                 rip += 10;
                 rip += *(int32_t*)rip;
                 rip += 4;
-                injectarg.arg1 = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-                goto __Continue;
+                injectarg.Pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
             }
         }
-        isHook = 0;
+        else isHook = 0;
+
+        //verfiyhook
+        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 8B 0D");
+        if (address)
+        {
+            int64_t rip = address;
+            rip += 0x1;
+            rip += *(int32_t*)(rip)+4;
+            injectarg.verfiy = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+        }
+        else
+        {
+            Show_Error_Msg(L"GetFunc Fail ! GIx0");
+        }
+        if (Use_mobile_UI)
+        {
+            //setting bug
+            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? 83 F8 02 75 0B 48 89 F1 48 89 FA E8");
+            if (address)
+            {
+                int64_t rip = address;
+                rip += 0x6;
+                GI_Func.setbug_fix = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            }
+            else
+            {
+                Use_mobile_UI = 0;
+            }
+            //Unhook_hook
+            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 89 F1 E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 80 B9 ?? ?? ?? ?? 00");
+            if (address)
+            {
+                int64_t rip = address;
+                rip += 0xC;
+                rip += *(int32_t*)(rip)+4;
+                GI_Func.Unhook_func = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            }
+            else
+            {
+                Use_mobile_UI = 0;
+            }
+            if (Use_mobile_UI)
+            {
+                injectarg.Bootui = Tar_Device;
+                injectarg.PfuncList = &GI_Func;
+            }
+            else 
+            {
+                GI_Func.Pfunc_device_type = 0;
+            }
+        }
+
     }
 
 __Continue:

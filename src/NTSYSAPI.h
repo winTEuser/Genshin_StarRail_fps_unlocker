@@ -131,7 +131,8 @@ typedef enum HardErrorResponseIcon {
 typedef enum HardErrorResponse {
     ResponseReturnToCaller,
     ResponseNotHandled,
-    ResponseAbort, ResponseCancel,
+    ResponseAbort, 
+    ResponseCancel,
     ResponseIgnore,
     ResponseNo,
     ResponseOk,
@@ -1195,9 +1196,8 @@ __declspec(noinline) static BOOLEAN WINAPI TerminateProcess_Internal(HANDLE hPro
 
 static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCALL_SCNUMBER* SCnum_struct, PNTSYSAPIADDR Store)
 {
-	//memset(buff, 0xCC, 0x4000);
-
-    //__nop();
+	
+    __nop();
     //random var
     DWORD64 ra = __rdtsc();
     ra ^= (DWORD64)Store;
@@ -1881,10 +1881,23 @@ static NTSTATUS init_API()
             InitUnicodeString(&title_str, (PWSTR)L"API Init Failed!");
             ULONG_PTR params[4] = { (ULONG_PTR)&message_str, (ULONG_PTR)&title_str, ((ULONG)ResponseButtonOK | IconError), INFINITE };
             DWORD response;
+            __nop();
             NtRaiseHardError(STATUS_SERVICE_NOTIFICATION | HARDERROR_OVERRIDE_ERRORMODE, 4, 3, params, 0, &response);
         }
     }
     return init_Status;
+}
+
+static DWORD MessageBoxW_Internal(LPCWSTR lpText, LPCWSTR lpCaption, UINT uType)
+{
+    UNICODE_STRING message_str;
+    UNICODE_STRING title_str;
+	InitUnicodeString(&message_str, lpText);
+	InitUnicodeString(&title_str, lpCaption);
+	ULONG_PTR params[4] = { (ULONG_PTR)&message_str, (ULONG_PTR)&title_str, uType, INFINITE };
+	DWORD response;
+	NTSTATUS ret = NtRaiseHardError(STATUS_SERVICE_NOTIFICATION | HARDERROR_OVERRIDE_ERRORMODE, 4, 3, params, 0, &response);
+    return response;
 }
 
 #endif
