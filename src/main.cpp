@@ -571,8 +571,12 @@ static bool WriteConfig(int fps)
     *(DWORD64*)&content = ((DWORD64)buffer);
     *(DWORD64*)((DWORD64)&content + 0x18) = 0x8000;
     *(DWORD*)buffer = 0x20FEFF;
-    content += L"[Setting]\nGenshinPath=" + GenGamePath + L"\n";
-    content += L"HKSRPath=" + HKSRGamePath + L"\n";
+    {
+        content += L"[Setting]\nGenshinPath=" + GenGamePath + L"\n";
+    }
+    {
+        content += L"HKSRPath=" + HKSRGamePath + L"\n";
+    }
     {
         content += L"IsAntiMisscontact=" + std::to_wstring(isAntimiss) + L"\n";
     }
@@ -615,70 +619,294 @@ static bool LoadConfig()
     INIReader reader(CONFIG_FILENAME);
     if (reader.ParseError() != 0)
     {
-        wprintf_s(L"\n Config Not Found !\n 配置文件未发现\n Don't close unlocker and open the game \n 不要关闭解锁器,并打开游戏\n Wait for game start ......\n 等待游戏启动.....\n");
+        wprintf_s(L"\n Config Not Found !\n 配置文件未发现\n try read reg info\n 尝试读取启动器注册表配置...\n ......");
 
-_no_config:
-        DWORD pid = 0;
-        while (1)
-        {
-            if (isGenshin)
-            {
-                if ((pid = GetPID(L"YuanShen.exe")) || (pid = GetPID(L"GenshinImpact.exe")))
-                    break;
-            }
-            else 
-            {
-                if (pid = GetPID(L"StarRail.exe"))
-                    break;
-            }
-            NtSleep(200);
-        }
-        HANDLE hProcess = OpenProcess_Internal(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE | PROCESS_TERMINATE, pid);
-        if (!hProcess)
-        {
-            Show_Error_Msg(L"OpenProcess failed! (Get game path)");
-            return 0;
-        }
-
-        // 获取进程句柄 - 这权限很低的了 - 不应该获取不了
-        // PROCESS_QUERY_LIMITED_INFORMATION - 用于查询进程路经 (K32GetModuleFileNameExA)
-        // SYNCHRONIZE - 用于等待进程结束 (WaitForSingleObject)
-
-        DWORD length = 0x4000;
+    _no_config:
+        DWORD length = 0x10000;
         wchar_t* szPath = (wchar_t*)VirtualAlloc_Internal(0, length, PAGE_READWRITE);
-        if(!szPath)
+        if (!szPath)
         {
             Show_Error_Msg(L"Alloc Memory failed! (Get game path)");
             return 0;
         }
-        if (!QueryFullProcessImageNameW(hProcess, 0, szPath, &length))
+        //尝试从注册表获取游戏路径
+        DWORD ver_region = 0;
+        HKEY htempKey = 0;
+        //Software\\Cognosphere\HYP\\1_0\\hk4e_global
+        //Software\\Cognosphere\HYP\\1_0\\hkrpg_global
+        //Software\\miHoYo\HYP\1_2\\hk4e_cn
+        //Software\\miHoYo\HYP\1_2\\hkrpg_cn
+		const wchar_t* CNserver = L"Software\\miHoYo\\HYP\\1_2";
+		const wchar_t* Globalserver = L"Software\\Cognosphere\\HYP\\1_0";
+        if (!RegOpenKeyW(HKEY_CURRENT_USER, CNserver, &htempKey))
         {
-            Show_Error_Msg(L"Get game path failed!");
-            VirtualFree_Internal(szPath, 0, MEM_RELEASE);
-            return 0;
+            ver_region |= 0x1;
+			RegCloseKey(htempKey);
+        }
+        if (!RegOpenKeyW(HKEY_CURRENT_USER, Globalserver, &htempKey))
+        {
+            ver_region |= 0x2;
+            RegCloseKey(htempKey);
+        }
+        if(ver_region)
+        {
+            HKEY hExtKey = 0;
+			DWORD ret = 0;
+            _ver_result:
+            switch (ver_region)
+            {
+			    case 0x1: //cn
+                {
+                    {
+                        wstring hk4eKey = CNserver;
+                        hk4eKey += L"\\hk4e_cn";
+                        ret = RegOpenKeyW(HKEY_CURRENT_USER, hk4eKey.c_str(), &hExtKey);
+                        if (ret != ERROR_SUCCESS)
+                        {
+                            goto _reg_getpath_fail;
+                        }
+                    }
+                    ret = RegGetValueW(hExtKey, NULL, L"GameInstallPath", RRF_RT_REG_SZ, NULL, szPath, &length);
+                    RegCloseKey(hExtKey);
+                    if (ret != ERROR_SUCCESS)
+                    {
+                        goto _reg_getpath_fail;
+                    }
+                    else
+                    {
+                        wchar_t* pstrend = szPath;
+                        while (*pstrend != 0) pstrend++;
+                        pstrend[0] = L'\\';
+                        pstrend[1] = L'Y';
+                        pstrend[2] = L'u';
+                        pstrend[3] = L'a';
+                        pstrend[4] = L'n';
+                        pstrend[5] = L'S';
+                        pstrend[6] = L'h';
+                        pstrend[7] = L'e';
+                        pstrend[8] = L'n';
+                        pstrend[9] = L'.';
+                        pstrend[10] = L'e';
+                        pstrend[11] = L'x';
+                        pstrend[12] = L'e';
+                        pstrend[13] = 0;
+                        if (GetFileAttributesW(szPath) != INVALID_FILE_ATTRIBUTES)
+                        {
+                            GenGamePath = szPath;
+                        }
+                    }
+					{
+						wstring hkrpgKey = CNserver;
+						hkrpgKey += L"\\hkrpg_cn";
+						ret = RegOpenKeyW(HKEY_CURRENT_USER, hkrpgKey.c_str(), &hExtKey);
+						if (ret != ERROR_SUCCESS)
+						{
+							goto _reg_getpath_fail;
+						}
+					}
+                    ret = RegGetValueW(hExtKey, NULL, L"GameInstallPath", RRF_RT_REG_SZ, NULL, szPath, &length);
+					RegCloseKey(hExtKey);
+                    if (ret != ERROR_SUCCESS)
+                    {
+                        goto _reg_getpath_fail;
+                    }
+                    else
+                    {
+                        wchar_t* pstrend = szPath;
+                        while (*pstrend != 0) pstrend++;
+                        pstrend[0] = L'\\';
+                        pstrend[1] = L'S';
+                        pstrend[2] = L't';
+                        pstrend[3] = L'a';
+                        pstrend[4] = L'r';
+                        pstrend[5] = L'R';
+                        pstrend[6] = L'a';
+                        pstrend[7] = L'i';
+                        pstrend[8] = L'l';
+                        pstrend[9] = L'.';
+                        pstrend[10] = L'e';
+                        pstrend[11] = L'x';
+                        pstrend[12] = L'e';
+                        pstrend[13] = 0;
+                        if (GetFileAttributesW(szPath) != INVALID_FILE_ATTRIBUTES)
+						{
+							HKSRGamePath = szPath;
+						}
+                    }
+					break;
+                }
+			    case 0x2: //global
+                {
+                    {
+                        wstring hk4eKey = Globalserver;
+                        hk4eKey += L"\\hk4e_global";
+                        ret = RegOpenKeyW(HKEY_CURRENT_USER, hk4eKey.c_str(), &hExtKey);
+                        if (ret != ERROR_SUCCESS)
+                        {
+                            goto _reg_getpath_fail;
+                        }
+                    }
+					ret = RegGetValueW(hExtKey, NULL, L"\\hk4e_global\\GameInstallPath", RRF_RT_REG_SZ, NULL, szPath, &length);
+					RegCloseKey(hExtKey);
+					if (ret != ERROR_SUCCESS)
+					{
+						goto _reg_getpath_fail;
+					}
+                    else
+                    {
+                        wchar_t* pstrend = szPath;
+                        while (*pstrend != 0) pstrend++;
+						pstrend[0] = L'\\';
+                        pstrend[1] = L'G';
+                        pstrend[2] = L'e';
+                        pstrend[3] = L'n';
+                        pstrend[4] = L's';
+                        pstrend[5] = L'h';
+                        pstrend[6] = L'i';
+                        pstrend[7] = L'n';
+                        pstrend[8] = L'I';
+                        pstrend[9] = L'm';
+                        pstrend[10] = L'p';
+                        pstrend[11] = L'a';
+                        pstrend[12] = L'c';
+                        pstrend[13] = L't';
+                        pstrend[14] = L'.';
+                        pstrend[15] = L'e';
+                        pstrend[16] = L'x';
+                        pstrend[17] = L'e';
+                        pstrend[18] = 0;
+                        if (GetFileAttributesW(szPath) != INVALID_FILE_ATTRIBUTES)
+						{
+							GenGamePath = szPath;
+						}
+                    }
+                    {
+                        wstring hkrpgKey = Globalserver;
+                        hkrpgKey += L"\\hkrpg_global";
+                        ret = RegOpenKeyW(HKEY_CURRENT_USER, hkrpgKey.c_str(), &hExtKey);
+                        if (ret != ERROR_SUCCESS)
+                        {
+                            goto _reg_getpath_fail;
+                        }
+                    }
+                    ret = RegGetValueW(hExtKey, NULL, L"GameInstallPath", RRF_RT_REG_SZ, NULL, szPath, &length);
+                    RegCloseKey(hExtKey);
+                    if (ret != ERROR_SUCCESS)
+                    {
+                        goto _reg_getpath_fail;
+                    }
+                    else
+                    {
+                        wchar_t* pstrend = szPath;
+                        while (*pstrend != 0) pstrend++;
+                        pstrend[0] = L'\\';
+                        pstrend[1] = L'S';
+                        pstrend[2] = L't';
+                        pstrend[3] = L'a';
+                        pstrend[4] = L'r';
+                        pstrend[5] = L'R';
+                        pstrend[6] = L'a';
+                        pstrend[7] = L'i';
+                        pstrend[8] = L'l';
+                        pstrend[9] = L'.';
+                        pstrend[10] = L'e';
+                        pstrend[11] = L'x';
+                        pstrend[12] = L'e';
+                        pstrend[13] = 0;
+                        if (GetFileAttributesW(szPath) != INVALID_FILE_ATTRIBUTES)
+                        {
+                            HKSRGamePath = szPath;
+                        }
+                    }
+                    break;
+                }
+                case 0x3:
+                {
+					ret = MessageBoxW_Internal(L"Both CN and Global version registry keys found! Please select the version you want to launch. \
+                        \n注册表内有两个版本的启动器，请选择游戏服务器版本\nClick Yes to CN Ver, No to Global Ver\n点“是”使用国服，点“否“使用国际服", L"Version Selection", MB_ICONQUESTION | MB_YESNO);
+                    if (ret == 8)
+                    {
+						ver_region = 0x1; //CN
+						goto _ver_result;
+					}
+					ver_region = 0x2; //Global
+					goto _ver_result;
+                }
+                default:
+                    goto _reg_getpath_fail;
+            }
+            if (isGenshin)
+            {
+                GamePath = GenGamePath;
+            }
+            else
+            {
+                GamePath = HKSRGamePath;
+            }
+			goto _getpath_done;
         }
 
-        if (isGenshin) 
+		//没有成功获取到,开始进程搜索//不区分版本
+    _reg_getpath_fail:
+		wprintf_s(L"\n Search Game Path failed! Don't close this window and Try manually boot game \n 获取启动器注册表配置失败，请手动启动游戏获取路径\n");
+        if(1)
+        {
+            DWORD pid = 0;
+            while (1)
+            {
+                if (isGenshin)
+                {
+                    if ((pid = GetPID(L"YuanShen.exe")) || (pid = GetPID(L"GenshinImpact.exe")))
+                        break;
+                }
+                else
+                {
+                    if (pid = GetPID(L"StarRail.exe"))
+                        break;
+                }
+                NtSleep(200);
+            }
+            HANDLE hProcess = OpenProcess_Internal(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE | PROCESS_TERMINATE, pid);
+            if (!hProcess)
+            {
+                Show_Error_Msg(L"OpenProcess failed! (Get game path)");
+                return 0;
+            }
+
+            // 获取进程句柄 - 这权限很低的了 - 不应该获取不了
+            // PROCESS_QUERY_LIMITED_INFORMATION - 用于查询进程路经 (K32GetModuleFileNameExA)
+            // SYNCHRONIZE - 用于等待进程结束 (WaitForSingleObject)
+
+            if (!QueryFullProcessImageNameW(hProcess, 0, szPath, &length))
+            {
+                Show_Error_Msg(L"Get game path failed!");
+                VirtualFree_Internal(szPath, 0, MEM_RELEASE);
+                return 0;
+            }
+            DWORD ExitCode = STILL_ACTIVE;
+            while (ExitCode == STILL_ACTIVE)
+            {
+                // wait for the game to close then continue
+                TerminateProcess_Internal(hProcess, 0);
+                WaitForSingleObject(hProcess, 2000);
+                GetExitCodeProcess(hProcess, &ExitCode);
+            }
+            CloseHandle_Internal(hProcess);
+        }
+        if (isGenshin)
         {
             GenGamePath = szPath;
         }
-        else 
+        else
         {
             HKSRGamePath = szPath;
         }
         GamePath = szPath;
 
+    _getpath_done:
+        
         VirtualFree_Internal(szPath, 0, MEM_RELEASE);
 
-        DWORD ExitCode = STILL_ACTIVE;
-        while (ExitCode == STILL_ACTIVE)
-        {
-            // wait for the game to close then continue
-            TerminateProcess_Internal(hProcess, 0);
-            WaitForSingleObject(hProcess, 2000);
-            GetExitCodeProcess(hProcess, &ExitCode);
-        }
-        CloseHandle_Internal(hProcess);
 
         //clean screen
         {
@@ -688,7 +916,7 @@ _no_config:
         }
         for (int a = 0; a <= 6; a++)
         {
-            for (int i = 0; i <= 10; i++)
+            for (int i = 0; i <= 16; i++)
             {
                 printf_s("               ");
             }
@@ -1180,7 +1408,11 @@ static uint64_t Hksr_ENmobile_get_Ptr(HANDLE Tar_handle, LPCWSTR GPath)
         //      75 05 E8 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 28 C3          
         DWORD64 tar_addr;
         DWORD64 address;
-        if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "80 B9 ?? ?? ?? ?? 00 74 ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3"))
+        if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "80 B9 ?? ?? ?? ?? 00 0F 84 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3"))
+        {
+            tar_addr = address + 15;
+        }
+        else if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "80 B9 ?? ?? ?? ?? 00 74 ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3"))
         {
             tar_addr = address + 11;
         }
@@ -1246,7 +1478,7 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
     
-    wprintf_s(L"FPS unlocker 2.8.8\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
+    wprintf_s(L"FPS unlocker 2.8.9\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTOSver: %u \nNTDLLver: %u\n", *(uint16_t*)((__readgsqword(0x60)) + 0x120), ParseOSBuildBumber());
 
     if (NTSTATUS r = init_API())
     {
