@@ -3,15 +3,13 @@
 #ifndef __NT_SYSAPI_H__
 #define __NT_SYSAPI_H__
 
-#include <Windows.h>
-#include <immintrin.h>
 
 #pragma comment(lib, "ntdll.lib")
 #pragma comment (linker, "/INCLUDE:_tls_used")
 #pragma comment (linker, "/INCLUDE:pTLS_CALLBACKs")
 
 #ifndef _WIN64
-#error this API define only work for Win64
+#error this API header can only work for Win64
 #endif
 
 
@@ -31,8 +29,12 @@
 #define SUSPEND_INITFAILED              (0xC00E)
 #define RESUME_INITFAILED               (0xC00F)
 #define CLOSE_HANDLE_INITFAILED         (0xC010)
+#define QUERY_INFO_THREAD_INITFAILED    (0xC011)
 
-
+#include <Windows.h>
+#include <intrin.h>
+#include <immintrin.h>
+#include <stdint.h>
 
 
 NTSTATUS init_API(void);
@@ -68,14 +70,7 @@ EXTERN_C NTSYSAPI DWORD NTAPI NtRaiseHardError(
 
 static DWORD init_Status = -1;
 
-
-#if(1)
-
-typedef struct SYSCALLSTRUCT {
-    DWORD64 calladdr;
-    DWORD64 scnumber;
-    DWORD64 rcx;
-}SYSCALLSTRUCT, *PSYSCALLSTRUCT;
+//api_signature
 
 typedef struct _UNICODE_STRING {
     USHORT Length;
@@ -92,8 +87,8 @@ typedef struct _OBJECT_ATTRIBUTES {
     ULONG Attributes;
     PVOID SecurityDescriptor;
     PVOID SecurityQualityOfService;
-} OBJECT_ATTRIBUTES;
-typedef OBJECT_ATTRIBUTES* POBJECT_ATTRIBUTES;
+} OBJECT_ATTRIBUTES, *POBJECT_ATTRIBUTES;
+typedef const OBJECT_ATTRIBUTES* PCOBJECT_ATTRIBUTES;
 
 typedef enum _SECTION_INHERIT {
     ViewShare = 1,
@@ -229,6 +224,217 @@ typedef enum _SYSTEM_INFORMATION_CLASS
     SystemFileCacheInformationEx,
 } SYSTEM_INFORMATION_CLASS, * PSYSTEM_INFORMATION_CLASS;
 
+typedef enum _PROCESSINFOCLASS
+{
+    ProcessBasicInformation, // q: PROCESS_BASIC_INFORMATION, PROCESS_EXTENDED_BASIC_INFORMATION
+    ProcessQuotaLimits, // qs: QUOTA_LIMITS, QUOTA_LIMITS_EX
+    ProcessIoCounters, // q: IO_COUNTERS
+    ProcessVmCounters, // q: VM_COUNTERS, VM_COUNTERS_EX, VM_COUNTERS_EX2
+    ProcessTimes, // q: KERNEL_USER_TIMES
+    ProcessBasePriority, // s: KPRIORITY
+    ProcessRaisePriority, // s: ULONG
+    ProcessDebugPort, // q: HANDLE
+    ProcessExceptionPort, // s: PROCESS_EXCEPTION_PORT (requires SeTcbPrivilege)
+    ProcessAccessToken, // s: PROCESS_ACCESS_TOKEN
+    ProcessLdtInformation, // qs: PROCESS_LDT_INFORMATION // 10
+    ProcessLdtSize, // s: PROCESS_LDT_SIZE
+    ProcessDefaultHardErrorMode, // qs: ULONG
+    ProcessIoPortHandlers, // s: PROCESS_IO_PORT_HANDLER_INFORMATION // (kernel-mode only)
+    ProcessPooledUsageAndLimits, // q: POOLED_USAGE_AND_LIMITS
+    ProcessWorkingSetWatch, // q: PROCESS_WS_WATCH_INFORMATION[]; s: void
+    ProcessUserModeIOPL, // qs: ULONG (requires SeTcbPrivilege)
+    ProcessEnableAlignmentFaultFixup, // s: BOOLEAN
+    ProcessPriorityClass, // qs: PROCESS_PRIORITY_CLASS
+    ProcessWx86Information, // qs: ULONG (requires SeTcbPrivilege) (VdmAllowed)
+    ProcessHandleCount, // q: ULONG, PROCESS_HANDLE_INFORMATION // 20
+    ProcessAffinityMask, // (q >WIN7)s: KAFFINITY, qs: GROUP_AFFINITY
+    ProcessPriorityBoost, // qs: ULONG
+    ProcessDeviceMap, // qs: PROCESS_DEVICEMAP_INFORMATION, PROCESS_DEVICEMAP_INFORMATION_EX
+    ProcessSessionInformation, // q: PROCESS_SESSION_INFORMATION
+    ProcessForegroundInformation, // s: PROCESS_FOREGROUND_BACKGROUND
+    ProcessWow64Information, // q: ULONG_PTR
+    ProcessImageFileName, // q: UNICODE_STRING
+    ProcessLUIDDeviceMapsEnabled, // q: ULONG
+    ProcessBreakOnTermination, // qs: ULONG
+    ProcessDebugObjectHandle, // q: HANDLE // 30
+    ProcessDebugFlags, // qs: ULONG
+    ProcessHandleTracing, // q: PROCESS_HANDLE_TRACING_QUERY; s: PROCESS_HANDLE_TRACING_ENABLE[_EX] or void to disable
+    ProcessIoPriority, // qs: IO_PRIORITY_HINT
+    ProcessExecuteFlags, // qs: ULONG (MEM_EXECUTE_OPTION_*)
+    ProcessTlsInformation, // PROCESS_TLS_INFORMATION // ProcessResourceManagement
+    ProcessCookie, // q: ULONG
+    ProcessImageInformation, // q: SECTION_IMAGE_INFORMATION
+    ProcessCycleTime, // q: PROCESS_CYCLE_TIME_INFORMATION // since VISTA
+    ProcessPagePriority, // qs: PAGE_PRIORITY_INFORMATION
+    ProcessInstrumentationCallback, // s: PVOID or PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION // 40
+    ProcessThreadStackAllocation, // s: PROCESS_STACK_ALLOCATION_INFORMATION, PROCESS_STACK_ALLOCATION_INFORMATION_EX
+    ProcessWorkingSetWatchEx, // q: PROCESS_WS_WATCH_INFORMATION_EX[]; s: void
+    ProcessImageFileNameWin32, // q: UNICODE_STRING
+    ProcessImageFileMapping, // q: HANDLE (input)
+    ProcessAffinityUpdateMode, // qs: PROCESS_AFFINITY_UPDATE_MODE
+    ProcessMemoryAllocationMode, // qs: PROCESS_MEMORY_ALLOCATION_MODE
+    ProcessGroupInformation, // q: USHORT[]
+    ProcessTokenVirtualizationEnabled, // s: ULONG
+    ProcessConsoleHostProcess, // qs: ULONG_PTR // ProcessOwnerInformation
+    ProcessWindowInformation, // q: PROCESS_WINDOW_INFORMATION // 50
+    ProcessHandleInformation, // q: PROCESS_HANDLE_SNAPSHOT_INFORMATION // since WIN8
+    ProcessMitigationPolicy, // s: PROCESS_MITIGATION_POLICY_INFORMATION
+    ProcessDynamicFunctionTableInformation, // s: PROCESS_DYNAMIC_FUNCTION_TABLE_INFORMATION
+    ProcessHandleCheckingMode, // qs: ULONG; s: 0 disables, otherwise enables
+    ProcessKeepAliveCount, // q: PROCESS_KEEPALIVE_COUNT_INFORMATION
+    ProcessRevokeFileHandles, // s: PROCESS_REVOKE_FILE_HANDLES_INFORMATION
+    ProcessWorkingSetControl, // s: PROCESS_WORKING_SET_CONTROL
+    ProcessHandleTable, // q: ULONG[] // since WINBLUE
+    ProcessCheckStackExtentsMode, // qs: ULONG // KPROCESS->CheckStackExtents (CFG)
+    ProcessCommandLineInformation, // q: UNICODE_STRING // 60
+    ProcessProtectionInformation, // q: PS_PROTECTION
+    ProcessMemoryExhaustion, // s: PROCESS_MEMORY_EXHAUSTION_INFO // since THRESHOLD
+    ProcessFaultInformation, // s: PROCESS_FAULT_INFORMATION
+    ProcessTelemetryIdInformation, // q: PROCESS_TELEMETRY_ID_INFORMATION
+    ProcessCommitReleaseInformation, // qs: PROCESS_COMMIT_RELEASE_INFORMATION
+    ProcessDefaultCpuSetsInformation, // qs: SYSTEM_CPU_SET_INFORMATION[5]
+    ProcessAllowedCpuSetsInformation, // qs: SYSTEM_CPU_SET_INFORMATION[5]
+    ProcessSubsystemProcess, // s: void // EPROCESS->SubsystemProcess
+    ProcessJobMemoryInformation, // q: PROCESS_JOB_MEMORY_INFO
+    ProcessInPrivate, // q: BOOLEAN; s: void // ETW // since THRESHOLD2 // 70
+    ProcessRaiseUMExceptionOnInvalidHandleClose, // qs: ULONG; s: 0 disables, otherwise enables
+    ProcessIumChallengeResponse,
+    ProcessChildProcessInformation, // q: PROCESS_CHILD_PROCESS_INFORMATION
+    ProcessHighGraphicsPriorityInformation, // qs: BOOLEAN (requires SeTcbPrivilege)
+    ProcessSubsystemInformation, // q: SUBSYSTEM_INFORMATION_TYPE // since REDSTONE2
+    ProcessEnergyValues, // q: PROCESS_ENERGY_VALUES, PROCESS_EXTENDED_ENERGY_VALUES, PROCESS_EXTENDED_ENERGY_VALUES_V1
+    ProcessPowerThrottlingState, // qs: POWER_THROTTLING_PROCESS_STATE
+    ProcessReserved3Information, // ProcessActivityThrottlePolicy // PROCESS_ACTIVITY_THROTTLE_POLICY
+    ProcessWin32kSyscallFilterInformation, // q: WIN32K_SYSCALL_FILTER
+    ProcessDisableSystemAllowedCpuSets, // s: BOOLEAN // 80
+    ProcessWakeInformation, // q: PROCESS_WAKE_INFORMATION
+    ProcessEnergyTrackingState, // qs: PROCESS_ENERGY_TRACKING_STATE
+    ProcessManageWritesToExecutableMemory, // MANAGE_WRITES_TO_EXECUTABLE_MEMORY // since REDSTONE3
+    ProcessCaptureTrustletLiveDump, // q: ULONG
+    ProcessTelemetryCoverage, // q: TELEMETRY_COVERAGE_HEADER; s: TELEMETRY_COVERAGE_POINT
+    ProcessEnclaveInformation,
+    ProcessEnableReadWriteVmLogging, // qs: PROCESS_READWRITEVM_LOGGING_INFORMATION
+    ProcessUptimeInformation, // q: PROCESS_UPTIME_INFORMATION
+    ProcessImageSection, // q: HANDLE
+    ProcessDebugAuthInformation, // s: CiTool.exe --device-id // PplDebugAuthorization // since RS4 // 90
+    ProcessSystemResourceManagement, // s: PROCESS_SYSTEM_RESOURCE_MANAGEMENT
+    ProcessSequenceNumber, // q: ULONGLONG
+    ProcessLoaderDetour, // since RS5
+    ProcessSecurityDomainInformation, // q: PROCESS_SECURITY_DOMAIN_INFORMATION
+    ProcessCombineSecurityDomainsInformation, // s: PROCESS_COMBINE_SECURITY_DOMAINS_INFORMATION
+    ProcessEnableLogging, // qs: PROCESS_LOGGING_INFORMATION
+    ProcessLeapSecondInformation, // qs: PROCESS_LEAP_SECOND_INFORMATION
+    ProcessFiberShadowStackAllocation, // s: PROCESS_FIBER_SHADOW_STACK_ALLOCATION_INFORMATION // since 19H1
+    ProcessFreeFiberShadowStackAllocation, // s: PROCESS_FREE_FIBER_SHADOW_STACK_ALLOCATION_INFORMATION
+    ProcessAltSystemCallInformation, // s: PROCESS_SYSCALL_PROVIDER_INFORMATION // since 20H1 // 100
+    ProcessDynamicEHContinuationTargets, // s: PROCESS_DYNAMIC_EH_CONTINUATION_TARGETS_INFORMATION
+    ProcessDynamicEnforcedCetCompatibleRanges, // s: PROCESS_DYNAMIC_ENFORCED_ADDRESS_RANGE_INFORMATION // since 20H2
+    ProcessCreateStateChange, // since WIN11
+    ProcessApplyStateChange,
+    ProcessEnableOptionalXStateFeatures, // s: ULONG64 // optional XState feature bitmask
+    ProcessAltPrefetchParam, // qs: OVERRIDE_PREFETCH_PARAMETER // App Launch Prefetch (ALPF) // since 22H1
+    ProcessAssignCpuPartitions, // HANDLE
+    ProcessPriorityClassEx, // s: PROCESS_PRIORITY_CLASS_EX
+    ProcessMembershipInformation, // q: PROCESS_MEMBERSHIP_INFORMATION
+    ProcessEffectiveIoPriority, // q: IO_PRIORITY_HINT // 110
+    ProcessEffectivePagePriority, // q: ULONG
+    ProcessSchedulerSharedData, // SCHEDULER_SHARED_DATA_SLOT_INFORMATION // since 24H2
+    ProcessSlistRollbackInformation,
+    ProcessNetworkIoCounters, // q: PROCESS_NETWORK_COUNTERS
+    ProcessFindFirstThreadByTebValue, // PROCESS_TEB_VALUE_INFORMATION
+    ProcessEnclaveAddressSpaceRestriction, // since 25H2
+    ProcessAvailableCpus, // PROCESS_AVAILABLE_CPUS_INFORMATION
+    MaxProcessInfoClass
+} PROCESSINFOCLASS;
+
+typedef struct CLIENT_ID
+{
+    HANDLE UniqueProc;
+    HANDLE UniqueThread;
+}CLIENT_ID, * PCLIENT_ID;
+
+typedef enum _THREADINFOCLASS
+{
+    ThreadBasicInformation, // q: THREAD_BASIC_INFORMATION
+    ThreadTimes, // q: KERNEL_USER_TIMES
+    ThreadPriority, // s: KPRIORITY (requires SeIncreaseBasePriorityPrivilege)
+    ThreadBasePriority, // s: KPRIORITY
+    ThreadAffinityMask, // s: KAFFINITY
+    ThreadImpersonationToken, // s: HANDLE
+    ThreadDescriptorTableEntry, // q: DESCRIPTOR_TABLE_ENTRY (or WOW64_DESCRIPTOR_TABLE_ENTRY)
+    ThreadEnableAlignmentFaultFixup, // s: BOOLEAN
+    ThreadEventPair, // Obsolete
+    ThreadQuerySetWin32StartAddress, // qs: PVOID (requires THREAD_Set_LIMITED_INFORMATION)
+    ThreadZeroTlsCell, // s: ULONG // TlsIndex // 10
+    ThreadPerformanceCount, // q: LARGE_INTEGER
+    ThreadAmILastThread, // q: ULONG
+    ThreadIdealProcessor, // s: ULONG
+    ThreadPriorityBoost, // qs: ULONG
+    ThreadSetTlsArrayAddress, // s: ULONG_PTR
+    ThreadIsIoPending, // q: ULONG
+    ThreadHideFromDebugger, // q: BOOLEAN; s: void
+    ThreadBreakOnTermination, // qs: ULONG
+    ThreadSwitchLegacyState, // s: void // NtCurrentThread // NPX/FPU
+    ThreadIsTerminated, // q: ULONG // 20
+    ThreadLastSystemCall, // q: THREAD_LAST_SYSCALL_INFORMATION
+    ThreadIoPriority, // qs: IO_PRIORITY_HINT (requires SeIncreaseBasePriorityPrivilege)
+    ThreadCycleTime, // q: THREAD_CYCLE_TIME_INFORMATION (requires THREAD_QUERY_LIMITED_INFORMATION)
+    ThreadPagePriority, // qs: PAGE_PRIORITY_INFORMATION
+    ThreadActualBasePriority, // s: LONG (requires SeIncreaseBasePriorityPrivilege)
+    ThreadTebInformation, // q: THREAD_TEB_INFORMATION (requires THREAD_GET_CONTEXT + THREAD_SET_CONTEXT)
+    ThreadCSwitchMon, // Obsolete
+    ThreadCSwitchPmu, // Obsolete
+    ThreadWow64Context, // qs: WOW64_CONTEXT, ARM_NT_CONTEXT since 20H1
+    ThreadGroupInformation, // qs: GROUP_AFFINITY // 30
+    ThreadUmsInformation, // q: THREAD_UMS_INFORMATION // Obsolete
+    ThreadCounterProfiling, // q: BOOLEAN; s: THREAD_PROFILING_INFORMATION?
+    ThreadIdealProcessorEx, // qs: PROCESSOR_NUMBER; s: previous PROCESSOR_NUMBER on return
+    ThreadCpuAccountingInformation, // q: BOOLEAN; s: HANDLE (NtOpenSession) // NtCurrentThread // since WIN8
+    ThreadSuspendCount, // q: ULONG // since WINBLUE
+    ThreadHeterogeneousCpuPolicy, // q: KHETERO_CPU_POLICY // since THRESHOLD
+    ThreadContainerId, // q: GUID
+    ThreadNameInformation, // qs: THREAD_NAME_INFORMATION (requires THREAD_SET_LIMITED_INFORMATION)
+    ThreadSelectedCpuSets, // q: ULONG[]
+    ThreadSystemThreadInformation, // q: SYSTEM_THREAD_INFORMATION // 40
+    ThreadActualGroupAffinity, // q: GROUP_AFFINITY // since THRESHOLD2
+    ThreadDynamicCodePolicyInfo, // q: ULONG; s: ULONG (NtCurrentThread)
+    ThreadExplicitCaseSensitivity, // qs: ULONG; s: 0 disables, otherwise enables // (requires SeDebugPrivilege and PsProtectedSignerAntimalware)
+    ThreadWorkOnBehalfTicket, // ALPC_WORK_ON_BEHALF_TICKET // RTL_WORK_ON_BEHALF_TICKET_EX // NtCurrentThread
+    ThreadSubsystemInformation, // q: SUBSYSTEM_INFORMATION_TYPE // since REDSTONE2
+    ThreadDbgkWerReportActive, // s: ULONG; s: 0 disables, otherwise enables
+    ThreadAttachContainer, // s: HANDLE (job object) // NtCurrentThread
+    ThreadManageWritesToExecutableMemory, // MANAGE_WRITES_TO_EXECUTABLE_MEMORY // since REDSTONE3
+    ThreadPowerThrottlingState, // qs: POWER_THROTTLING_THREAD_STATE // since REDSTONE3 (set), WIN11 22H2 (query)
+    ThreadWorkloadClass, // THREAD_WORKLOAD_CLASS // since REDSTONE5 // 50
+    ThreadCreateStateChange, // since WIN11
+    ThreadApplyStateChange,
+    ThreadStrongerBadHandleChecks, // s: ULONG // NtCurrentThread // since 22H1
+    ThreadEffectiveIoPriority, // q: IO_PRIORITY_HINT
+    ThreadEffectivePagePriority, // q: ULONG
+    ThreadUpdateLockOwnership, // THREAD_LOCK_OWNERSHIP // since 24H2
+    ThreadSchedulerSharedDataSlot, // SCHEDULER_SHARED_DATA_SLOT_INFORMATION
+    ThreadTebInformationAtomic, // q: THREAD_TEB_INFORMATION (requires THREAD_GET_CONTEXT + THREAD_QUERY_INFORMATION)
+    ThreadIndexInformation, // THREAD_INDEX_INFORMATION
+    MaxThreadInfoClass
+} THREADINFOCLASS;
+
+typedef struct _THREAD_BASIC_INFORMATION
+{
+    NTSTATUS ExitStatus;        // The exit status of the thread or STATUS_PENDING when the thread has not terminated. (GetExitCodeThread)
+    PVOID TebBaseAddress;        // The base address of the memory region containing the TEB structure. (NtCurrentTeb)
+    CLIENT_ID ClientId;         // The process and thread identifier of the thread.
+    KAFFINITY AffinityMask;     // The affinity mask of the thread. (deprecated) (SetThreadAffinityMask)
+    ULONG Priority;
+    ULONG BasePriority;
+} THREAD_BASIC_INFORMATION, * PTHREAD_BASIC_INFORMATION;
+
+typedef struct _PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION
+{
+    ULONG Version;
+    ULONG Reserved;
+    PVOID Callback;
+} PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION, * PPROCESS_INSTRUMENTATION_CALLBACK_INFORMATION;
+
 typedef struct _SYSTEM_PROCESS_INFORMATION {
     ULONG NextEntryOffset;
     ULONG NumberOfThreads;
@@ -255,11 +461,81 @@ typedef struct _SYSTEM_PROCESS_INFORMATION {
     LARGE_INTEGER Reserved7[6];
 } SYSTEM_PROCESS_INFORMATION, *PSYSTEM_PROCESS_INFORMATION;
 
-typedef struct CLIENT_ID
+
+typedef struct _LIST_MOD 
 {
-    HANDLE UniqueProc;
-    HANDLE UniqueThread;
-}CLIENT_ID, * PCLIENT_ID;
+    struct MODULE_TABLE_ENTRY* Flink;
+    struct MODULE_TABLE_ENTRY* Blink;
+} _LIST_MOD, * P_LIST_MOD;
+
+typedef struct MODULE_TABLE_ENTRY
+{
+    MODULE_TABLE_ENTRY* Next;
+    MODULE_TABLE_ENTRY* Last;
+    PVOID Reserved[2];
+    HMODULE ModBase;
+    PVOID EntryPoint;
+    PVOID Reserved3;
+    UNICODE_STRING FullDllName;
+    BYTE Reserved4[8];
+    PVOID Reserved5[3];
+    union
+    {
+        ULONG CheckSum;
+        PVOID Reserved6;
+    };
+    ULONG TimeDateStamp;
+} MODULE_TABLE_ENTRY, * PMODULE_TABLE_ENTRY;
+
+typedef struct _PEB_LDR_DATA64
+{
+    ULONG Length;                                      //0x0
+    UCHAR Initialized;                                 //0x4
+    PVOID SsHandle;                                    //0x8
+    _LIST_ENTRY InLoadOrderModuleList;                 //0x10
+    _LIST_MOD InMemoryOrderModuleList;                 //0x20
+    _LIST_ENTRY InInitializationOrderModuleList;       //0x30
+    PVOID EntryInProgress;                             //0x40
+    UCHAR ShutdownInProgress;                          //0x48
+    PVOID ShutdownThreadId;                            //0x50
+}PEB_LDR_DATA64, * PPEB_LDR_DATA64;
+
+typedef struct PEB64
+{
+    UCHAR InheritedAddressSpace;                       //0x0
+    UCHAR ReadImageFileExecOptions;                    //0x1
+    UCHAR BeingDebugged;                               //0x2
+    union
+    {
+        UCHAR BitField;                                //0x3
+        struct
+        {
+            UCHAR ImageUsesLargePages : 1;             //0x3
+            UCHAR IsProtectedProcess : 1;              //0x3
+            UCHAR IsImageDynamicallyRelocated : 1;     //0x3
+            UCHAR SkipPatchingUser32Forwarders : 1;    //0x3
+            UCHAR IsPackagedProcess : 1;               //0x3
+            UCHAR IsAppContainer : 1;                  //0x3
+            UCHAR IsProtectedProcessLight : 1;         //0x3
+            UCHAR IsLongPathAwareProcess : 1;          //0x3
+        };
+    };
+    UCHAR Padding0[4];                                 //0x4
+    ULONGLONG Mutant;                                  //0x8
+    ULONGLONG ImageBaseAddress;                        //0x10
+    PEB_LDR_DATA64* Ldr;                               //0x18
+    ULONGLONG ProcessParameters;                       //0x20
+    ULONGLONG SubSystemData;                           //0x28
+    ULONGLONG ProcessHeap;                             //0x30
+    ULONGLONG FastPebLock;                             //0x38
+    ULONGLONG AtlThunkSListPtr;                        //0x40
+    ULONGLONG IFEOKey;                                 //0x48
+    BYTE Resevered[0xC8];
+    ULONG OSMajorVersion;
+    ULONG OSMinorVersion;
+    WORD OSBuildNumber;
+    BYTE Resevered1[14];
+}PEB64, * PPEB64;
 
 
 typedef NTSTATUS(NTAPI* _NtCreateThreadEx_Win64)(
@@ -377,6 +653,29 @@ typedef NTSTATUS(NTAPI* _NtOpenProcess_Win64)(
     PCLIENT_ID         ClientId
     );
 
+typedef NTSTATUS(NTAPI* _NtSetInformationProcess_Win64)(
+    HANDLE            hProcess,
+    PROCESSINFOCLASS  ProcessInfoClass,
+    PVOID             ProcessInfo,
+    ULONG             ProcessInfosize
+);
+
+typedef NTSTATUS(NTAPI* _NtQueryInformationProcess_Win64)(
+    HANDLE            hProcess,
+    PROCESSINFOCLASS  ProcessInfoClass,
+    PVOID             ProcessInfo,
+    ULONG             ProcessInfosize,
+	PULONG            ReturnLength
+    );
+
+typedef NTSTATUS(NTAPI* _NtQueryInformationThread_Win64)(
+	HANDLE            hThread,
+	THREADINFOCLASS   ThreadInfoClass,
+	PVOID             ThreadInfo,
+	ULONG             ThreadInfosize,
+	PULONG            ReturnLength
+	);
+
 typedef NTSTATUS(NTAPI* _NtTerminateProcess_Win64)(HANDLE hProcess, DWORD ExitCode);
 
 typedef NTSTATUS(NTAPI* _NtDelayExecution_Win64)(BOOL Alertable, PLARGE_INTEGER DelayInterval);
@@ -387,7 +686,30 @@ typedef NTSTATUS(NTAPI* _NtResumeThread_Win64)(HANDLE ThreadHandle, PULONG Previ
 
 typedef NTSTATUS(NTAPI* _NtClose_Win64)(HANDLE Handle);
 
+/*
+ * Creates a new process.
+ *
+ * @param ProcessHandle A pointer to a handle that receives the process object handle.
+ * @param DesiredAccess The access rights desired for the process object.
+ * @param ObjectAttributes Optional. A pointer to an OBJECT_ATTRIBUTES structure that specifies the attributes of the new process.
+ * @param ParentProcess A handle to the parent process.
+ * @param InheritObjectTable If TRUE, the new process inherits the object table of the parent process.
+ * @param SectionHandle Optional. A handle to a section object to be used for the new process.
+ * @param DebugPort Optional. A handle to a debug port to be used for the new process.
+ * @param TokenHandle Optional. A handle to an access token to be used for the new process.
+ * @return NTSTATUS Successful or errant status.
+ */
 
+typedef NTSTATUS(NTAPI* _NtCreateProcess_Win64)(
+    _Out_ PHANDLE ProcessHandle,
+    _In_ ACCESS_MASK DesiredAccess,
+    _In_opt_ POBJECT_ATTRIBUTES ObjectAttributes,
+    _In_ HANDLE ParentProcess,
+    _In_ BOOLEAN InheritObjectTable,
+    _In_opt_ HANDLE SectionHandle,
+    _In_opt_ HANDLE DebugPort,
+    _In_opt_ HANDLE TokenHandle
+);
 
 typedef BOOL(WINAPI* CreateProcessW_pWin64)(
     LPCWSTR lpApplicationName,
@@ -402,120 +724,21 @@ typedef BOOL(WINAPI* CreateProcessW_pWin64)(
     LPPROCESS_INFORMATION lpProcessInformation
     );
 
+//ntapi_end
 
-enum 
-{
-    WINDOWS_XP = 2600,
-    WINDOWS_2003 = 3790,
-    WINDOWS_VISTA = 6000,
-    WINDOWS_VISTA_SP1 = 6001,
-    WINDOWS_VISTA_SP2 = 6002,
-    WINDOWS_7 = 7600,
-    WINDOWS_7_SP1 = 7601,
-    WINDOWS_8 = 9200,
-    WINDOWS_8_1 = 9600,
-    WINDOWS_10_TH1 = 10240,
-    WINDOWS_10_TH2 = 10586,
-    WINDOWS_10_RS1 = 14393,
-    WINDOWS_10_RS2 = 15063,
-    WINDOWS_10_RS3 = 16299,
-    WINDOWS_10_RS4 = 17134,
-    WINDOWS_10_RS5 = 17763,
-    WINDOWS_10_19H1 = 18362,
-    WINDOWS_10_19H2 = 18363,
-    WINDOWS_10_20H1 = 19041,
-    WINDOWS_10_20H2 = 19042,
-    WINDOWS_10_21H1 = 19043,
-    WINDOWS_10_21H2 = 19044,
-    WINDOWS_10_22H2 = 19045,
-    WINDOWS_11_21H2 = 22000,
-    WINDOWS_11_22H2 = 22621,
-    WINDOWS_11_23H2 = 22631,
-    WINDOWS_11_24H2 = 26100,
-};
 
-typedef struct _LIST_MOD {
-    struct MODULE_TABLE_ENTRY* Flink;
-    struct MODULE_TABLE_ENTRY* Blink;
-} _LIST_MOD, * P_LIST_MOD;
-
-typedef struct MODULE_TABLE_ENTRY 
-{
-    MODULE_TABLE_ENTRY* Next;
-    MODULE_TABLE_ENTRY* Last;
-    PVOID Reserved[2];
-    HMODULE ModBase;
-    PVOID EntryPoint;
-    PVOID Reserved3;
-    UNICODE_STRING FullDllName;
-    BYTE Reserved4[8];
-    PVOID Reserved5[3];
-    union 
-    {
-        ULONG CheckSum;
-        PVOID Reserved6;
-    };
-    ULONG TimeDateStamp;
-} MODULE_TABLE_ENTRY, * PMODULE_TABLE_ENTRY;
-
-typedef struct _PEB_LDR_DATA64
-{
-    ULONG Length;                                      //0x0
-    UCHAR Initialized;                                 //0x4
-    PVOID SsHandle;                                    //0x8
-    _LIST_ENTRY InLoadOrderModuleList;                 //0x10
-    _LIST_MOD InMemoryOrderModuleList;                 //0x20
-    _LIST_ENTRY InInitializationOrderModuleList;       //0x30
-    PVOID EntryInProgress;                             //0x40
-    UCHAR ShutdownInProgress;                          //0x48
-    PVOID ShutdownThreadId;                            //0x50
-}PEB_LDR_DATA64, * PPEB_LDR_DATA64;
-
-typedef struct PEB64
-{
-    UCHAR InheritedAddressSpace;                       //0x0
-    UCHAR ReadImageFileExecOptions;                    //0x1
-    UCHAR BeingDebugged;                               //0x2
-    union
-    {
-        UCHAR BitField;                                //0x3
-        struct
-        {
-            UCHAR ImageUsesLargePages : 1;             //0x3
-            UCHAR IsProtectedProcess : 1;              //0x3
-            UCHAR IsImageDynamicallyRelocated : 1;     //0x3
-            UCHAR SkipPatchingUser32Forwarders : 1;    //0x3
-            UCHAR IsPackagedProcess : 1;               //0x3
-            UCHAR IsAppContainer : 1;                  //0x3
-            UCHAR IsProtectedProcessLight : 1;         //0x3
-            UCHAR IsLongPathAwareProcess : 1;          //0x3
-        };
-    };
-    UCHAR Padding0[4];                                 //0x4
-    ULONGLONG Mutant;                                  //0x8
-    ULONGLONG ImageBaseAddress;                        //0x10
-    PEB_LDR_DATA64* Ldr;                               //0x18
-    ULONGLONG ProcessParameters;                       //0x20
-    ULONGLONG SubSystemData;                           //0x28
-    ULONGLONG ProcessHeap;                             //0x30
-    ULONGLONG FastPebLock;                             //0x38
-    ULONGLONG AtlThunkSListPtr;                        //0x40
-    ULONGLONG IFEOKey;                                 //0x48
-    BYTE Resevered[0xC8];
-    ULONG OSMajorVersion;
-    ULONG OSMinorVersion;
-    WORD OSBuildNumber;
-    BYTE Resevered1[14];
-}PEB64, * PPEB64;
-
-#endif
+typedef struct SYSCALLSTRUCT {
+    DWORD64 calladdr;
+    DWORD64 scnumber;
+    DWORD64 rcx;
+}SYSCALLSTRUCT, * PSYSCALLSTRUCT;
 
 
 typedef struct NTSYSCALL_SCNUMBER
 {
     DWORD sc_CreateThreadEx;
-	DWORD sc_SuspendThread;
-	DWORD sc_ResumeThread;
+    DWORD sc_SuspendThread;
+    DWORD sc_ResumeThread;
     DWORD sc_AllocMem;
     DWORD sc_VirtualFree;
     DWORD sc_WriteMem;
@@ -524,8 +747,9 @@ typedef struct NTSYSCALL_SCNUMBER
     DWORD sc_VirtualQuery;
     DWORD sc_OpenProc;
     DWORD sc_QuerySysInfo;
+	DWORD sc_QueryInfoThread;
     DWORD sc_Terminate;
-	DWORD sc_CloseHandle;
+    DWORD sc_CloseHandle;
     //DWORD sc_CreateSec;
     //DWORD sc_mapView;
     //DWORD sc_UnmapView;
@@ -545,19 +769,21 @@ typedef struct NTSYSAPIADDR
     _NtOpenProcess_Win64                NtOpenProcess;
     _NtTerminateProcess_Win64           NtTerminateProcess;
     _NtQuerySystemInformation_Win64     NtQuerySystemInformation;
-	_NtClose_Win64				        NtClose;
+	//_NtSetInformationProcess_Win64      NtSetInformationProcess;
+	//_NtQueryInformationProcess_Win64    NtQueryInformationProcess;
+	_NtQueryInformationThread_Win64     NtQueryInformationThread;
+    _NtClose_Win64				        NtClose;
     _NtDelayExecution_Win64             NtDelayExecution;
     //_NtCreateSection_Win64              NtCreateSection;
     //_NtMapViewOfSection_Win64           NtMapViewOfSection;
     //_NtUnmapViewOfSection_Win64         NtUnmapViewOfSection;
-}NTSYSAPIADDR, *PNTSYSAPIADDR, **PPNTSYSAPIADDR;
+}NTSYSAPIADDR, * PNTSYSAPIADDR, ** PPNTSYSAPIADDR;
 
 
 DWORD64 Ntdll_ADDR = 0;
 DWORD64 Kernel32_ADDR = 0;
 
 void* CreateProcessW_p = 0;
-
 
 static DWORD64 API = 0;
 
@@ -582,16 +808,17 @@ __declspec(noinline) const wchar_t* FindFileVersion(const BYTE* ptr, size_t data
     {
         if (data_size >= 13) 
         {
-            if (data[i + 0] == L'F' && data[i + 1] == L'i' && data[i + 2] == L'l' && data[i + 3] == L'e' && data[i + 4] == L'V' && data[i + 5] == L'e' && data[i + 6] == L'r' &&
-                data[i + 7] == L's' && data[i + 8] == L'i' && data[i + 9] == L'o' && data[i + 10] == L'n' && data[i + 11] == 0 && data[i + 12] == 0)
-                return data + i + 13;
+            DWORD64 strFileVersion[] = {0x65006C00690046, 0x73007200650056, 0x6E006F0069};
+            if (*(DWORD64*)data == strFileVersion[0] && *(DWORD64*)(data + 4) == strFileVersion[1] && *(DWORD64*)(data + 8) == strFileVersion[2] && data[12] == 0)
+                return data + 13;
         }
         if (data_size >= 15) 
         {
-            if (data[i + 0] == L'P' && data[i + 1] == L'r' && data[i + 2] == L'o' && data[i + 3] == L'd' && data[i + 4] == L'u' && data[i + 5] == L'c' && data[i + 6] == L't' &&
-                data[i + 7] == L'V' && data[i + 8] == L'e' && data[i + 9] == L'r' && data[i + 10] == L's' && data[i + 11] == L'i' && data[i + 12] == L'o' && data[i + 13] == L'n' && data[i + 14] == 0)
-                return data + i + 15;
+			DWORD64 strProductVersion[] = { 0x64006F00720050, 0x56007400630075, 0x69007300720065};
+            if (*(DWORD64*)data == strProductVersion[0] && *(DWORD64*)(data + 4) == strProductVersion[1] && *(DWORD64*)(data + 8) == strProductVersion[2] && data[14] == 0)
+                return data + 15;
         }
+        data++;
     }
     return NULL;
 }
@@ -744,7 +971,7 @@ __forceinline void InitUnicodeString(PUNICODE_STRING DestinationString, PCWSTR S
     DestinationString->Buffer = (PWCH)SourceString;
 }
 
-__declspec(noinline) void* GetProcAddress_Internal(HMODULE module, const char* proc_name)
+__declspec(noinline) FARPROC GetProcAddress_Internal(HMODULE module, LPCSTR proc_name)
 {
     // check input
     if (!module || !proc_name)
@@ -848,7 +1075,7 @@ static void NtSleep(DWORD milliseconds)
 }
 
 
-__declspec(noinline) static BOOLEAN WINAPI VirtualProtect_Internal(HANDLE procHandle, LPVOID baseAddr, size_t size, DWORD protect, DWORD* oldp)
+__declspec(noinline) static BOOL WINAPI VirtualProtectEx_Internal(HANDLE procHandle, LPVOID baseAddr, size_t size, DWORD protect, PDWORD oldp)
 {
     if(!API)
     {
@@ -870,6 +1097,12 @@ __declspec(noinline) static BOOLEAN WINAPI VirtualProtect_Internal(HANDLE procHa
         return 0;
     }
     return 1;
+}
+
+
+static BOOL WINAPI VirtualProtect_Internal(LPVOID baseAddr, size_t size, DWORD protect, PDWORD oldp)
+{
+	return VirtualProtectEx_Internal((HANDLE)-1, baseAddr, size, protect, oldp);
 }
 
 
@@ -903,7 +1136,7 @@ static PVOID WINAPI VirtualAlloc_Internal(_In_opt_ PVOID dst_baseaddr, size_t si
 }
 
 
-__declspec(noinline) static BOOLEAN WINAPI VirtualFreeEx_Internal(HANDLE handle, _In_opt_ PVOID baseaddr, size_t size, DWORD Freetype)
+__declspec(noinline) static BOOL WINAPI VirtualFreeEx_Internal(HANDLE handle, _In_opt_ PVOID baseaddr, size_t size, DWORD Freetype)
 {
     if (!API)
     {
@@ -921,13 +1154,13 @@ __declspec(noinline) static BOOLEAN WINAPI VirtualFreeEx_Internal(HANDLE handle,
 }
 
 
-static BOOLEAN WINAPI VirtualFree_Internal(_In_opt_ PVOID baseaddr, size_t size, DWORD Freetype)
+static BOOL WINAPI VirtualFree_Internal(_In_opt_ PVOID baseaddr, size_t size, DWORD Freetype)
 {
     return VirtualFreeEx_Internal((HANDLE)-1, baseaddr, size, Freetype);
 }
 
 
-__declspec(noinline) static BOOLEAN WINAPI ReadProcessMemoryInternal(HANDLE procHandle, _In_ LPVOID src_baseaddr, _In_opt_ LPVOID dst_buffer, size_t size, size_t* sizeofreadnum)
+__declspec(noinline) static BOOL WINAPI ReadProcessMemoryInternal(HANDLE procHandle, _In_ LPVOID src_baseaddr, _In_opt_ LPVOID dst_buffer, size_t size, size_t* sizeofreadnum)
 {
     if(!API)
     {
@@ -948,7 +1181,7 @@ __declspec(noinline) static BOOLEAN WINAPI ReadProcessMemoryInternal(HANDLE proc
 }
 
 
-__declspec(noinline) static BOOLEAN WINAPI WriteProcessMemoryInternal(HANDLE procHandle, _In_opt_ LPVOID dst_baseaddr, _In_ LPVOID src_buffer, size_t size, size_t* sizeofwritenum)
+__declspec(noinline) static BOOL WINAPI WriteProcessMemoryInternal(HANDLE procHandle, _In_opt_ LPVOID dst_baseaddr, _In_ LPVOID src_buffer, size_t size, size_t* sizeofwritenum)
 {
     if (!API)
     {
@@ -1094,6 +1327,26 @@ __declspec(noinline) static HANDLE WINAPI CreateRemoteThreadEx_Internal(HANDLE h
 }
 
 
+__declspec(noinline) static DWORD WINAPI GetExitCodeThread_Internal(HANDLE hThread)
+{
+	if (!API)
+	{
+		BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
+		return 0;
+	}
+	PNTSYSAPIADDR DecAPI = *(PPNTSYSAPIADDR)~API;
+	THREAD_BASIC_INFORMATION tbi = { 0 };
+	NTSTATUS ret = DecAPI->NtQueryInformationThread(hThread, ThreadBasicInformation, &tbi, sizeof(THREAD_BASIC_INFORMATION), NULL);
+	if (ret)
+	{
+		BaseSetLastNTError_inter(ret);
+		return 0;
+	}
+
+	return tbi.ExitStatus;
+}
+
+
 __declspec(noinline) static HANDLE WINAPI OpenProcess_Internal(DWORD dwDesiredAccess, DWORD dwProcessId)
 {
     if (!API)
@@ -1156,7 +1409,7 @@ __declspec(noinline) static DWORD WINAPI ResumeThread_Internal(HANDLE hThread)
 }
 
 
-__declspec(noinline) static BOOLEAN WINAPI CloseHandle_Internal(HANDLE hObject)
+__declspec(noinline) static BOOL WINAPI CloseHandle_Internal(HANDLE hObject)
 {
 	if (!API)
 	{
@@ -1174,7 +1427,7 @@ __declspec(noinline) static BOOLEAN WINAPI CloseHandle_Internal(HANDLE hObject)
 }
 
 
-__declspec(noinline) static BOOLEAN WINAPI TerminateProcess_Internal(HANDLE hProcess, DWORD Code)
+__declspec(noinline) static BOOL WINAPI TerminateProcess_Internal(HANDLE hProcess, DWORD Code)
 {
     if (!API)
     {
@@ -1196,7 +1449,6 @@ __declspec(noinline) static BOOLEAN WINAPI TerminateProcess_Internal(HANDLE hPro
 
 static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCALL_SCNUMBER* SCnum_struct, PNTSYSAPIADDR Store)
 {
-	
     __nop();
     //random var
     DWORD64 ra = __rdtsc();
@@ -1255,9 +1507,6 @@ static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCAL
         *(DWORD64*)(startaddr + (i * 0x20) + 0x18) = 0xCCCCCCCCCCCCCCCC;
     }
 
-    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_CreateThreadEx;
-    Store->NtCreateThreadEx = (_NtCreateThreadEx_Win64)startaddr;
-    startaddr += 0x20;
     *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_AllocMem;
     Store->NtAllocateVirtualMemory = (_NtAllocateVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
@@ -1267,11 +1516,14 @@ static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCAL
     *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_ProtectMem;
     Store->NtProtectVirtualMemory = (_NtProtectVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
-    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_WriteMem;
-    Store->NtWriteVirtualMemory = (_NtWriteVirtualMemory_Win64)startaddr;
-    startaddr += 0x20;
     *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_ReadMem;
     Store->NtReadVirtualMemory = (_NtReadVirtualMemory_Win64)startaddr;
+	startaddr += 0x20;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_CreateThreadEx;
+    Store->NtCreateThreadEx = (_NtCreateThreadEx_Win64)startaddr;
+    startaddr += 0x20;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_WriteMem;
+    Store->NtWriteVirtualMemory = (_NtWriteVirtualMemory_Win64)startaddr;
     startaddr += 0x20;
     *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_VirtualQuery;
     Store->NtQueryVirtualMemory = (_NtQueryVirtualMemory_Win64)startaddr;
@@ -1284,6 +1536,9 @@ static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCAL
     startaddr += 0x20;
     *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_QuerySysInfo;
     Store->NtQuerySystemInformation = (_NtQuerySystemInformation_Win64)startaddr;
+    startaddr += 0x20;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_QueryInfoThread;
+    Store->NtQueryInformationThread = (_NtQueryInformationThread_Win64)startaddr;
 	startaddr += 0x20;
 	*(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_ResumeThread;
 	Store->NtResumeThread = (_NtResumeThread_Win64)startaddr;
@@ -1293,6 +1548,7 @@ static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCAL
 	startaddr += 0x20;
 	*(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_CloseHandle;
 	Store->NtClose = (_NtClose_Win64)startaddr;
+    //0xE
     /*
     startaddr += 0x20;
     *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_CreateSec;
@@ -1341,7 +1597,7 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
             isWine = *(LPCSTR*)isWine;
         }
     }
-
+    
     if(1)
     {
         char str_zct[32];
@@ -1621,7 +1877,30 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
         {
             tempstore.NtQuerySystemInformation = (_NtQuerySystemInformation_Win64)NtQSysInfo;
         }
-    }
+	}
+	{
+		char str_QInfoThread[32];
+		*(DWORD64*)(&str_QInfoThread) = 0xB6868D9A8AAE8BB1;
+		*(DWORD64*)(&str_QInfoThread[8]) = 0x968B9E928D909991;
+		*(DWORD64*)(&str_QInfoThread[16]) = 0x9B9E9A8D97AB9190;
+		decbyte(str_QInfoThread, 3);
+		*(DWORD64*)(&str_QInfoThread[24]) = 0;
+		void* NtQInfoThread = GetProcAddress_Internal(ntdll, str_QInfoThread);
+		if (!NtQInfoThread)
+			return QUERY_INFO_THREAD_INITFAILED;
+		if (!isWine)
+		{
+			int i = ParseSyscallscNum(NtQInfoThread, &SC_number.sc_QueryInfoThread);
+			if (i != 1)
+			{
+				return QUERY_INFO_THREAD_INITFAILED;
+			}
+		}
+		else
+		{
+			tempstore.NtQueryInformationThread = (_NtQueryInformationThread_Win64)NtQInfoThread;
+		}
+	}
     {
         char str_Terminate[32];
         *(DWORD64*)(&str_Terminate) = 0x9196928D9AAB8BB1;
@@ -1645,7 +1924,6 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
             tempstore.NtTerminateProcess = (_NtTerminateProcess_Win64)NtTerminate;
         }
     }
-
     /*
     {
         char str_CreateSec[16];
@@ -1830,11 +2108,12 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
         *(DWORD64*)(&str_createproc[8]) = 0x2BFFA88C8C9A9C90;
         decbyte(str_createproc, 2);
         CreateProcessW_p = (CreateProcessW_pWin64)~(DWORD64)GetProcAddress_Internal(kernel32, str_createproc);
+        if (!CreateProcessW_p)
+        {
+            return 0xF2;
+        }
     }
-    if (!CreateProcessW_p)
-    {
-        return 0xF2;
-    }
+    
     return 0;
 }
 
@@ -1844,9 +2123,11 @@ static NTSTATUS init_API()
     {
         DWORD peb = 0x60;
         DWORD err = 0;
+        DWORD64 apit = 0;
         if (init_Status != -1)
             err = 1;
-        init_Status = init_NTAPI(&peb, err, &API);
+        init_Status = init_NTAPI(&peb, err, &apit);
+		API = apit;
         if (init_Status)
         {
             uint16_t errmsg[32];
@@ -1900,4 +2181,6 @@ static DWORD MessageBoxW_Internal(LPCWSTR lpText, LPCWSTR lpCaption, UINT uType)
     return response;
 }
 
+
 #endif
+
