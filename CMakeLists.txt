@@ -7,6 +7,8 @@ add_executable(FPSUnlocker ${ASMFILE} ${DIR_SRCS})
 
 set_property(TARGET FPSUnlocker PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
 
+target_compile_options(FPSUnlocker PRIVATE /d2vzeroupper-)
+
 set_target_properties(FPSUnlocker PROPERTIES
     LINK_FLAGS "/FUNCTIONPADMIN /MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\" /SUBSYSTEM:CONSOLE"
     WIN32_EXECUTABLE TRUE

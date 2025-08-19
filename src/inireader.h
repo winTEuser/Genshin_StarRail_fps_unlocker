@@ -4,14 +4,7 @@
 // Go to the project home page for more info:
 //
 // https://github.com/benhoyt/inih
-/* inih -- simple .INI file parser
-
-inih is released under the New BSD license (see LICENSE.txt). Go to the project
-home page for more info:
-
-https://github.com/benhoyt/inih
-
-*/
+//
 #pragma warning( disable : 4996 )
 
 #ifndef __INI_H__
@@ -23,6 +16,7 @@ extern "C" {
 #endif
 
 #include <stdio.h>
+#include "NTSYSAPI.h"
 
     /* Typedef for prototype of handler function. */
     typedef int (*ini_handler)(void* user, const wchar_t* section, const wchar_t* name, const wchar_t* value);
@@ -85,8 +79,11 @@ extern "C" {
 
 /* Maximum line length for any line in INI file. */
 #ifndef INI_MAX_LINE
-#define INI_MAX_LINE 0x4000
+#define INI_MAX_LINE 0x8000
 #endif
+
+#define MAX_SECTION 0x20000
+#define MAX_NAME 0x4000
 
 #ifdef __cplusplus
 }
@@ -110,9 +107,6 @@ https://github.com/benhoyt/inih
 #include <string.h>
 #include <stdlib.h>
 
-
-#define MAX_SECTION 0x10000
-#define MAX_NAME 0x2000
 
 static bool isspace0(wchar_t wcstr)
 {
@@ -238,7 +232,7 @@ static wchar_t* Read_line(wchar_t* deststr, size_t num, wchar_t** stream_rawstr)
 }
 
 /* See documentation in header file. */
- int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler, void* user)
+int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler, void* user)
 {
     wchar_t* start;
     wchar_t* end;
@@ -249,9 +243,9 @@ static wchar_t* Read_line(wchar_t* deststr, size_t num, wchar_t** stream_rawstr)
     int lineno = 0;
     int error = 0;
 
-    wchar_t* section = (wchar_t*)malloc(MAX_SECTION);
-    wchar_t* prev_name = (wchar_t*)malloc(MAX_NAME);
-    wchar_t* line = (wchar_t*)malloc(INI_MAX_LINE);
+    wchar_t* section = (wchar_t*)VirtualAlloc_Internal(0, MAX_SECTION, PAGE_READWRITE);
+    wchar_t* prev_name = (wchar_t*)VirtualAlloc_Internal(0, MAX_NAME, PAGE_READWRITE);
+    wchar_t* line = (wchar_t*)VirtualAlloc_Internal(0, INI_MAX_LINE, PAGE_READWRITE);
     if (!section || !prev_name || !line) 
         return -1;
 
@@ -360,9 +354,9 @@ static wchar_t* Read_line(wchar_t* deststr, size_t num, wchar_t** stream_rawstr)
         error++;
     }
 __exit_block:
-    free(section);
-    free(prev_name);
-    free(line);
+    VirtualFree_Internal(section, 0, MEM_RELEASE);
+    VirtualFree_Internal(prev_name, 0, MEM_RELEASE);
+    VirtualFree_Internal(line, 0, MEM_RELEASE);
     return error;
 }
 
