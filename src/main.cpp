@@ -254,7 +254,7 @@ const DECLSPEC_ALIGN(32) BYTE _shellcode_Const[] = {
 	0x48, 0x8D, 0x6C, 0x24, 0x20,                        //lea rbp, qword [rsp+0x40] 
     0x89,0xCA,                                           //mov edx, ecx
     0xB9, 0xFF, 0xFF, 0x1F, 0x00,                        //mov ecx,1FFFFF
-    0x66, 0xE8, 0xF4, 0x02, 0x00, 0x00,                  //call API_OpenProcess
+    0x48, 0xE8, 0xF4, 0x02, 0x00, 0x00,                  //call API_OpenProcess
     0x85, 0xC0,                                          //test eax, eax
     0x74, 0x64,                                          //jz return
     0x2E, 0x41, 0x89, 0xC7,                              //mov r15d, eax
@@ -977,7 +977,7 @@ static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, c
         if (patternLen > kStackThreshold) free(patternBytes);
         return result;
     }
-    __nop();
+    __nop();__nop();__nop();
     if (g_cpuFeatures & AVX512_Support)
     {
         size_t scanEnd = regionSize - patternLen;
