@@ -8,6 +8,11 @@
 #define CONFIG_FILENAME (L"hoyofps_config.ini")
 #define IsKeyPressed(nVirtKey)    ((GetKeyState(nVirtKey) & (1<<(sizeof(SHORT)*8-1))) != 0)
 
+#ifndef _WIN64
+#error you must build in Win x64
+#endif
+
+
 #include <iostream>
 #include <vector>
 #include <string>
@@ -24,10 +29,6 @@
 #include "NTSYSAPI.h"
 #include "inireader.h"
 
-
-#ifndef _WIN64
-#error you must build in Win x64
-#endif
 
 using namespace std;
 
@@ -837,7 +838,6 @@ const DECLSPEC_ALIGN(32) int8_t g_HexLookup[256] = {
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1  // 112-127
 };
 
-
 #define SSE2_Support 0b0001
 #define AVX2_Support 0b0010
 #define AVX512_Support 0b0100
@@ -879,18 +879,17 @@ static uint8_t InitCPUFeatures()
     return result;
 }
 
-
 static uint8_t g_cpuFeatures = InitCPUFeatures();
 
 //pure C 特征搜索
 static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, const char* signature)
 {
-    if (!signature)
+    if (!signature || !startAddress || !regionSize)
         return 0;
 
     size_t patternLen = 0;
     const char* p = signature;
-
+    __nop(); __nop(); __nop();
     while (*p)
     {
         if (*p == ' ') { p++; continue; }
@@ -909,15 +908,22 @@ static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, c
 
     if (patternLen == 0) return 0;
 
+    // 内存分配优化
     const size_t kStackThreshold = 128;
     int stackPattern[kStackThreshold];
-    int* patternBytes = (patternLen <= kStackThreshold) ? stackPattern :
-        (int*)malloc(patternLen * sizeof(int));
-    if (!patternBytes && patternLen > kStackThreshold) return 0;
+    int* patternBytes = 0;
+    if (patternLen <= kStackThreshold)
+        patternBytes = stackPattern;
+    else
+    {
+        patternBytes = (int*)malloc(patternLen * sizeof(int));
+        if (!patternBytes) return 0;
+    }
 
+    // 解析特征码
     size_t parseIndex = 0;
     p = signature;
-    //
+
     while (*p && parseIndex < patternLen)
     {
         while (*p == ' ') p++;
@@ -977,7 +983,7 @@ static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, c
         if (patternLen > kStackThreshold) free(patternBytes);
         return result;
     }
-    __nop();__nop();__nop();
+    __nop(); __nop(); __nop();
     if (g_cpuFeatures & AVX512_Support)
     {
         size_t scanEnd = regionSize - patternLen;
@@ -994,12 +1000,9 @@ static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, c
                 _BitScanForward64(&bit, mask);
                 mask &= mask - 1;
                 size_t pos = i + bit;
-                if (pos > scanEnd)
-                    continue;
-
+                if (pos > scanEnd) continue;
                 int match = 1;
-
-                for (size_t j = firstIndex; j < patternLen; j++)
+                for (size_t j = firstIndex + 1; j < patternLen; j++)
                 {
                     if (patternBytes[j] == -1) continue;
                     if (scanBytes[pos + j] != (uint8_t)patternBytes[j])
@@ -1036,7 +1039,7 @@ static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, c
                 size_t pos = i + bit;
                 if (pos > scanEnd) continue;
                 int match = 1;
-                for (size_t j = firstIndex; j < patternLen; j++)
+                for (size_t j = firstIndex + 1; j < patternLen; j++)
                 {
                     if (patternBytes[j] == -1) continue;
                     if (scanBytes[pos + j] != (uint8_t)patternBytes[j])
@@ -1073,9 +1076,8 @@ static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, c
                 mask &= mask - 1;
                 size_t pos = i + bit;
                 if (pos > scanEnd) continue;
-
                 int match = 1;
-                for (size_t j = firstIndex; j < patternLen; j++)
+                for (size_t j = firstIndex + 1; j < patternLen; j++)
                 {
                     if (patternBytes[j] == -1) continue;
 
@@ -1780,7 +1782,10 @@ __path_ok:
             GamePriorityClass = NORMAL_PRIORITY_CLASS;
             break;
     }
-    FpsValue = reader.GetInteger(L"Setting", L"FPS", FPS_TARGET);
+    int32_t FpsValue_t = reader.GetInteger(L"Setting", L"FPS", FPS_TARGET);
+    if (FpsValue_t > 1000)
+        FpsValue_t = 1000;
+    FpsValue = FpsValue_t;
     WriteConfig(FpsValue);
     
     return 1;
@@ -1917,12 +1922,12 @@ typedef struct inject_arg
 }inject_arg, *Pinject_arg;
 
 // Hotpatch
-static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* arg)
+static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t _ptr_fps, inject_arg* arg)
 {
     if (!_ptr_fps)
         return 0;
 
-    BYTE* _sc_buffer = (BYTE*)VirtualAlloc_Internal(0, sizeof(_shellcode_Const), PAGE_READWRITE);
+    BYTE* _sc_buffer = (BYTE*)VirtualAlloc_Internal(0, 0x2000, PAGE_READWRITE);
     if (!_sc_buffer)
     {
         Show_Error_Msg(L"initcode failed!");
@@ -1938,6 +1943,10 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
     {
         *(uint16_t*)(_sc_buffer + 0x16A) = 0x3AEB;
     }
+    if (!isGenshin)
+    {
+        *(uint64_t*)(_sc_buffer + 0x18) = _ptr_fps;
+    }
 
     //genshin_get_gameset
     if (isGenshin && isHook)
@@ -1947,14 +1956,15 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
 
     //shellcode patch
     *(uint64_t*)(_sc_buffer + 0x8) = (uint64_t)(&FpsValue); //source ptr
-    *(uint64_t*)(_sc_buffer + 0x18) = _ptr_fps;
+    
 
-    LPVOID __Tar_proc_buffer = VirtualAllocEx_Internal(Tar_handle, NULL, sizeof(_shellcode_Const), PAGE_READWRITE);
+    LPVOID __Tar_proc_buffer = VirtualAllocEx_Internal(Tar_handle, NULL, 0x2000, PAGE_READWRITE);
     if (!__Tar_proc_buffer)
     {
         Show_Error_Msg(L"AllocEx Fail! ");
         return 0;
     }
+    uint64_t hook_info_ptr = ((uint64_t)_sc_buffer + 0x1000);
     if (arg->Bootui && (!isGenshin))
     {
         *(uint64_t*)(_sc_buffer + 0x20) = arg->Bootui;//HKSR mob
@@ -1964,6 +1974,36 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
     if (arg->PfuncList)
     {
         PHook_func_list GI_Func = (PHook_func_list)arg->PfuncList;
+        
+        if (1)//basefps
+        {
+            uint64_t Private_buffer = 0;
+            for (uint64_t buffer = 0x10000; !Private_buffer && buffer < 0x7FFF8000; buffer += 0x1000)
+            {
+                Private_buffer = (uint64_t)VirtualAllocEx_Internal(Tar_handle, (void*)(Tar_ModBase - buffer), 0x1000, PAGE_READWRITE);
+            }
+            if (!Private_buffer)
+            {
+                Show_Error_Msg(L"AllocEx Fail! 0xFFFF");
+                return 0;
+            }
+            *(uint64_t*)(_sc_buffer + 0x18) = Private_buffer;
+            uint64_t alienaddr = _ptr_fps & 0xFFFFFFFFFFFFFFF8;
+            Phooked_func_struct Pfps_patch = (Phooked_func_struct)hook_info_ptr;
+            Pfps_patch->func_addr = alienaddr;
+            if (!ReadProcessMemoryInternal(Tar_handle, (void*)alienaddr, (void*)&Pfps_patch->orgpart, 0x10, 0))
+            {
+                Show_Error_Msg(L"Failed Readfpspart (GI)");
+                goto __exit_block;
+            }
+            Pfps_patch->hookedpart = Pfps_patch->orgpart;
+            uint8_t mask = _ptr_fps & 0x7;
+            int32_t immva = (int32_t)(Private_buffer - _ptr_fps) - 4;
+            *(int32_t*)(((uint64_t)(&Pfps_patch->hookedpart)) + mask) = immva;
+            hook_info_ptr = (uint64_t)hook_info_ptr + sizeof(hooked_func_struct);
+        }
+
+
         if(GI_Func->Pfunc_device_type)
         {
             LPVOID __payload_ui = VirtualAllocEx_Internal(Tar_handle, NULL, sizeof(_GIUIshell_Const), PAGE_READWRITE);
@@ -2027,8 +2067,10 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
             }
             *(uint64_t*)(_sc_buffer + 0x20) = ((uint64_t)__payload_ui + 0x600);//Hookinfo_buffer
         }
+
         if(arg->verfiy)//hookverfiy
         {
+            *(uint64_t*)(_sc_buffer + 0x20) = ((uint64_t)__Tar_proc_buffer + 0x1000);//Hookinfo_buffer
             *(uint64_t*)(_sc_buffer + 0x28) = arg->verfiy;//func
             if (!ReadProcessMemoryInternal(Tar_handle, (void*)arg->verfiy, (_sc_buffer + 0x40), 0x10, 0))
             {
@@ -2047,7 +2089,7 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t _ptr_fps, inject_arg* 
     }
 __exit_block:
 
-    if (!WriteProcessMemoryInternal(Tar_handle, __Tar_proc_buffer, (void*)_sc_buffer, 0x1000, 0))
+    if (!WriteProcessMemoryInternal(Tar_handle, __Tar_proc_buffer, (void*)_sc_buffer, 0x2000, 0))
     {
         Show_Error_Msg(L"Write Scode Fail! ");
         return 0;
@@ -2564,12 +2606,14 @@ __Get_target_sec:
                 Use_mobile_UI = 0;
             }
         }
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "8B 0D ?? ?? ?? ?? 66 0F 6E C9 0F 5B C9");//5.5
+
+        //66 0F 6E 0D ?? ?? ?? ?? 0F 57 C0 0F 5B C9
+        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "66 0F 6E 0D ?? ?? ?? ?? 0F 57 C0 0F 5B C9");//5.5
         if (address)
         {
             int64_t rip = address;
-            rip += 2;
-            rip += *(int32_t*)(rip)+4;
+            rip += 4;
+            //rip += *(int32_t*)(rip)+4;
             pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
             goto __genshin_il;
         }
@@ -2579,7 +2623,7 @@ __Get_target_sec:
             int64_t rip = address;
             rip += 3;
             rip += *(int32_t*)(rip) + 6;
-            rip += *(int32_t*)(rip) + 4;
+            //rip += *(int32_t*)(rip) + 4;
             pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
             goto __genshin_il;
         }
@@ -2589,7 +2633,7 @@ __Get_target_sec:
             int64_t rip = address;
             rip += 3;
             rip += *(int32_t*)(rip) + 6;
-            rip += *(int32_t*)(rip) + 4;
+            //rip += *(int32_t*)(rip) + 4;
             pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
             goto __genshin_il;
         }
@@ -2598,7 +2642,7 @@ __Get_target_sec:
         {
             int64_t rip = address;
             rip += 4;
-            rip += *(int32_t*)(rip) + 4;
+            //rip += *(int32_t*)(rip) + 4;
             pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
             goto __genshin_il;
         }
@@ -2648,7 +2692,7 @@ __Get_target_sec:
     //-------------------------------------------------------------------------------------------------------------------------------------------------//
 
 __genshin_il:
-    if(Use_mobile_UI || isHook)
+    if(1)
     {
         uintptr_t UA_baseAddr = Unityplayer_baseAddr;
         if (is_old_version)
@@ -2700,7 +2744,6 @@ __genshin_il:
             }
         }
         else isHook = 0;
-
         //verfiyhook
         address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 8B 0D");
         if (address)
@@ -2709,10 +2752,14 @@ __genshin_il:
             rip += 0x1;
             rip += *(int32_t*)(rip)+4;
             injectarg.verfiy = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            injectarg.PfuncList = &GI_Func;
         }
         else
         {
-            Show_Error_Msg(L"GetFunc Fail ! GIx0");
+            Show_Error_Msg(L"GetFunc Fail ! GIxv");
+            TerminateProcess_Internal(pi->hProcess, 0);
+            CloseHandle_Internal(pi->hProcess);
+            return 0;
         }
         if (Use_mobile_UI)
         {
@@ -2744,18 +2791,16 @@ __genshin_il:
             if (Use_mobile_UI)
             {
                 injectarg.Bootui = Tar_Device;
-                injectarg.PfuncList = &GI_Func;
             }
             else 
             {
                 GI_Func.Pfunc_device_type = 0;
             }
         }
-
     }
 
 __Continue:
-    uintptr_t Patch_buffer = inject_patch(pi->hProcess, pfps, &injectarg);
+    uintptr_t Patch_buffer = inject_patch(pi->hProcess, Unityplayer_baseAddr, pfps, &injectarg);
     if (!Patch_buffer)
     {
         Show_Error_Msg(L"Inject Fail !\n");
@@ -2791,24 +2836,24 @@ __Continue:
     
     SetPriorityClass((HANDLE) -1, NORMAL_PRIORITY_CLASS);
 
+    wprintf_s(L"PID: %d\n \nDone! \n \n", pi->dwProcessId);
+
     if(!AutoExit)
     {
-        wprintf_s(L"PID: %d\n \nDone! \n \nUse ↑ ↓ ← → key to change fps limted\n使用键盘上的方向键调节帧率限制\n\n\n  UpKey : +20\n  DownKey : -20\n  LeftKey : -2\n  RightKey : +2\n\n", pi->dwProcessId);
+        wprintf_s(L"Use ↑ ↓ ← → key to change fps limted\n使用键盘上的方向键调节帧率限制\n\n\n  UpKey : +20\n  DownKey : -20\n  LeftKey : -2\n  RightKey : +2\n\n");
 
         // 创建printf线程
         HANDLE hdisplay = CreateRemoteThreadEx_Internal((HANDLE)-1, 0, Thread_display, 0);
         if (!hdisplay)
             Show_Error_Msg(L"Create Thread <Thread_display> Error! ");
 
-        DWORD dwExitCode = STILL_ACTIVE;
         uint32_t fps = FpsValue;
         uint32_t cycle_counter = 0;
         while (1)   // handle key input
         {
             NtSleep(50);
             cycle_counter++;
-            GetExitCodeProcess(pi->hProcess, &dwExitCode);
-            if (dwExitCode != STILL_ACTIVE)
+            if (GetExitCodeProcess_Internal(pi->hProcess) != STILL_ACTIVE)
             {
                 printf_s("\nGame Terminated !\n");
                 break;
@@ -2844,6 +2889,10 @@ __Continue:
             {
                 fps = 10;
             }
+            if (fps > 1000)
+            {
+                fps = 1000;
+            }
         }
         Process_endstate = 1;
         WaitForSingleObject(hdisplay, INFINITE);
@@ -2851,7 +2900,8 @@ __Continue:
     }
     else
     {
-        NtSleep(1000);
+        wprintf_s(L"Exit......");
+        NtSleep(2000);
     }
     CloseHandle_Internal(pi->hProcess);
     free(boot_info);

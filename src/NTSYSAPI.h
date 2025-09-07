@@ -30,6 +30,7 @@
 #define RESUME_INITFAILED               (0xC00F)
 #define CLOSE_HANDLE_INITFAILED         (0xC010)
 #define QUERY_INFO_THREAD_INITFAILED    (0xC011)
+#define QUERY_INFO_PROC_INITFAILED      (0xC012)
 
 #include <Windows.h>
 #include <intrin.h>
@@ -67,6 +68,13 @@ EXTERN_C NTSYSAPI DWORD NTAPI NtRaiseHardError(
     DWORD       ValidResponseOptions,
     PDWORD      Response
     );
+
+EXTERN_C NTSYSAPI ULONG NTAPI RtlGetFullPathName_U(
+    _In_ PCWSTR FileName,
+    _In_ ULONG BufferLength,
+    _Out_writes_bytes_(BufferLength) PWSTR Buffer,
+    _Out_opt_ PWSTR* FilePart
+);
 
 static DWORD init_Status = -1;
 
@@ -137,6 +145,108 @@ typedef enum HardErrorResponse {
 
 #define STATUS_SERVICE_NOTIFICATION ((NTSTATUS)0x40000018L)
 #define HARDERROR_OVERRIDE_ERRORMODE (0x10000000)
+
+
+typedef struct _SYSTEM_PROCESS_INFORMATION {
+    ULONG NextEntryOffset;
+    ULONG NumberOfThreads;
+    BYTE Reserved1[48];
+    UNICODE_STRING ImageName;
+    SIZE_T BasePriority;
+    HANDLE UniqueProcessId;
+    PVOID Reserved2;
+    ULONG HandleCount;
+    ULONG SessionId;
+    PVOID Reserved3;
+    SIZE_T PeakVirtualSize;
+    SIZE_T VirtualSize;
+    ULONG Reserved4;
+    SIZE_T PeakWorkingSetSize;
+    SIZE_T WorkingSetSize;
+    PVOID Reserved5;
+    SIZE_T QuotaPagedPoolUsage;
+    PVOID Reserved6;
+    SIZE_T QuotaNonPagedPoolUsage;
+    SIZE_T PagefileUsage;
+    SIZE_T PeakPagefileUsage;
+    SIZE_T PrivatePageCount;
+    LARGE_INTEGER Reserved7[6];
+} SYSTEM_PROCESS_INFORMATION, * PSYSTEM_PROCESS_INFORMATION;
+
+typedef struct _LIST_MOD
+{
+    struct MODULE_TABLE_ENTRY* Flink;
+    struct MODULE_TABLE_ENTRY* Blink;
+} _LIST_MOD, * P_LIST_MOD;
+
+typedef struct MODULE_TABLE_ENTRY
+{
+    MODULE_TABLE_ENTRY* Next;
+    MODULE_TABLE_ENTRY* Last;
+    PVOID Reserved[2];
+    HMODULE ModBase;
+    PVOID EntryPoint;
+    PVOID Reserved3;
+    UNICODE_STRING FullDllName;
+    BYTE Reserved4[8];
+    PVOID Reserved5[3];
+    union
+    {
+        ULONG CheckSum;
+        PVOID Reserved6;
+    };
+    ULONG TimeDateStamp;
+} MODULE_TABLE_ENTRY, * PMODULE_TABLE_ENTRY;
+
+typedef struct _PEB_LDR_DATA64
+{
+    ULONG Length;                                      //0x0
+    UCHAR Initialized;                                 //0x4
+    PVOID SsHandle;                                    //0x8
+    _LIST_ENTRY InLoadOrderModuleList;                 //0x10
+    _LIST_MOD InMemoryOrderModuleList;                 //0x20
+    _LIST_ENTRY InInitializationOrderModuleList;       //0x30
+    PVOID EntryInProgress;                             //0x40
+    UCHAR ShutdownInProgress;                          //0x48
+    PVOID ShutdownThreadId;                            //0x50
+}PEB_LDR_DATA64, * PPEB_LDR_DATA64;
+
+typedef struct PEB64
+{
+    UCHAR InheritedAddressSpace;                       //0x0
+    UCHAR ReadImageFileExecOptions;                    //0x1
+    UCHAR BeingDebugged;                               //0x2
+    union
+    {
+        UCHAR BitField;                                //0x3
+        struct
+        {
+            UCHAR ImageUsesLargePages : 1;             //0x3
+            UCHAR IsProtectedProcess : 1;              //0x3
+            UCHAR IsImageDynamicallyRelocated : 1;     //0x3
+            UCHAR SkipPatchingUser32Forwarders : 1;    //0x3
+            UCHAR IsPackagedProcess : 1;               //0x3
+            UCHAR IsAppContainer : 1;                  //0x3
+            UCHAR IsProtectedProcessLight : 1;         //0x3
+            UCHAR IsLongPathAwareProcess : 1;          //0x3
+        };
+    };
+    UCHAR Padding0[4];                                 //0x4
+    ULONGLONG Mutant;                                  //0x8
+    ULONGLONG ImageBaseAddress;                        //0x10
+    PEB_LDR_DATA64* Ldr;                               //0x18
+    ULONGLONG ProcessParameters;                       //0x20
+    ULONGLONG SubSystemData;                           //0x28
+    ULONGLONG ProcessHeap;                             //0x30
+    ULONGLONG FastPebLock;                             //0x38
+    ULONGLONG AtlThunkSListPtr;                        //0x40
+    ULONGLONG IFEOKey;                                 //0x48
+    BYTE Resevered[0xC8];
+    ULONG OSMajorVersion;
+    ULONG OSMinorVersion;
+    WORD OSBuildNumber;
+    BYTE Resevered1[14];
+}PEB64, * PPEB64;
 
 typedef enum _SYSTEM_INFORMATION_CLASS
 {
@@ -428,115 +538,22 @@ typedef struct _THREAD_BASIC_INFORMATION
     ULONG BasePriority;
 } THREAD_BASIC_INFORMATION, * PTHREAD_BASIC_INFORMATION;
 
+typedef struct _PROCESS_BASIC_INFORMATION
+{
+    NTSTATUS ExitStatus;                    // The exit status of the process. (GetExitCodeProcess)
+    PPEB64 PebBaseAddress;                  // A pointer to the process environment block (PEB) of the process.
+    KAFFINITY AffinityMask;                 // The affinity mask of the process. (GetProcessAffinityMask) (deprecated)
+    DWORD BasePriority;                     // The base priority of the process. (GetPriorityClass)
+    HANDLE UniqueProcessId;                 // The unique identifier of the process. (GetProcessId)
+    HANDLE InheritedFromUniqueProcessId;    // The unique identifier of the parent process.
+} PROCESS_BASIC_INFORMATION, * PPROCESS_BASIC_INFORMATION;
+
 typedef struct _PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION
 {
     ULONG Version;
     ULONG Reserved;
     PVOID Callback;
 } PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION, * PPROCESS_INSTRUMENTATION_CALLBACK_INFORMATION;
-
-typedef struct _SYSTEM_PROCESS_INFORMATION {
-    ULONG NextEntryOffset;
-    ULONG NumberOfThreads;
-    BYTE Reserved1[48];
-    UNICODE_STRING ImageName;
-    SIZE_T BasePriority;
-    HANDLE UniqueProcessId;
-    PVOID Reserved2;
-    ULONG HandleCount;
-    ULONG SessionId;
-    PVOID Reserved3;
-    SIZE_T PeakVirtualSize;
-    SIZE_T VirtualSize;
-    ULONG Reserved4;
-    SIZE_T PeakWorkingSetSize;
-    SIZE_T WorkingSetSize;
-    PVOID Reserved5;
-    SIZE_T QuotaPagedPoolUsage;
-    PVOID Reserved6;
-    SIZE_T QuotaNonPagedPoolUsage;
-    SIZE_T PagefileUsage;
-    SIZE_T PeakPagefileUsage;
-    SIZE_T PrivatePageCount;
-    LARGE_INTEGER Reserved7[6];
-} SYSTEM_PROCESS_INFORMATION, *PSYSTEM_PROCESS_INFORMATION;
-
-
-typedef struct _LIST_MOD 
-{
-    struct MODULE_TABLE_ENTRY* Flink;
-    struct MODULE_TABLE_ENTRY* Blink;
-} _LIST_MOD, * P_LIST_MOD;
-
-typedef struct MODULE_TABLE_ENTRY
-{
-    MODULE_TABLE_ENTRY* Next;
-    MODULE_TABLE_ENTRY* Last;
-    PVOID Reserved[2];
-    HMODULE ModBase;
-    PVOID EntryPoint;
-    PVOID Reserved3;
-    UNICODE_STRING FullDllName;
-    BYTE Reserved4[8];
-    PVOID Reserved5[3];
-    union
-    {
-        ULONG CheckSum;
-        PVOID Reserved6;
-    };
-    ULONG TimeDateStamp;
-} MODULE_TABLE_ENTRY, * PMODULE_TABLE_ENTRY;
-
-typedef struct _PEB_LDR_DATA64
-{
-    ULONG Length;                                      //0x0
-    UCHAR Initialized;                                 //0x4
-    PVOID SsHandle;                                    //0x8
-    _LIST_ENTRY InLoadOrderModuleList;                 //0x10
-    _LIST_MOD InMemoryOrderModuleList;                 //0x20
-    _LIST_ENTRY InInitializationOrderModuleList;       //0x30
-    PVOID EntryInProgress;                             //0x40
-    UCHAR ShutdownInProgress;                          //0x48
-    PVOID ShutdownThreadId;                            //0x50
-}PEB_LDR_DATA64, * PPEB_LDR_DATA64;
-
-typedef struct PEB64
-{
-    UCHAR InheritedAddressSpace;                       //0x0
-    UCHAR ReadImageFileExecOptions;                    //0x1
-    UCHAR BeingDebugged;                               //0x2
-    union
-    {
-        UCHAR BitField;                                //0x3
-        struct
-        {
-            UCHAR ImageUsesLargePages : 1;             //0x3
-            UCHAR IsProtectedProcess : 1;              //0x3
-            UCHAR IsImageDynamicallyRelocated : 1;     //0x3
-            UCHAR SkipPatchingUser32Forwarders : 1;    //0x3
-            UCHAR IsPackagedProcess : 1;               //0x3
-            UCHAR IsAppContainer : 1;                  //0x3
-            UCHAR IsProtectedProcessLight : 1;         //0x3
-            UCHAR IsLongPathAwareProcess : 1;          //0x3
-        };
-    };
-    UCHAR Padding0[4];                                 //0x4
-    ULONGLONG Mutant;                                  //0x8
-    ULONGLONG ImageBaseAddress;                        //0x10
-    PEB_LDR_DATA64* Ldr;                               //0x18
-    ULONGLONG ProcessParameters;                       //0x20
-    ULONGLONG SubSystemData;                           //0x28
-    ULONGLONG ProcessHeap;                             //0x30
-    ULONGLONG FastPebLock;                             //0x38
-    ULONGLONG AtlThunkSListPtr;                        //0x40
-    ULONGLONG IFEOKey;                                 //0x48
-    BYTE Resevered[0xC8];
-    ULONG OSMajorVersion;
-    ULONG OSMinorVersion;
-    WORD OSBuildNumber;
-    BYTE Resevered1[14];
-}PEB64, * PPEB64;
-
 
 typedef NTSTATUS(NTAPI* _NtCreateThreadEx_Win64)(
     PHANDLE ThreadHandle,//out
@@ -747,6 +764,7 @@ typedef struct NTSYSCALL_SCNUMBER
     DWORD sc_VirtualQuery;
     DWORD sc_OpenProc;
     DWORD sc_QuerySysInfo;
+    DWORD sc_QueryInfoProc;
 	DWORD sc_QueryInfoThread;
     DWORD sc_Terminate;
     DWORD sc_CloseHandle;
@@ -770,7 +788,7 @@ typedef struct NTSYSAPIADDR
     _NtTerminateProcess_Win64           NtTerminateProcess;
     _NtQuerySystemInformation_Win64     NtQuerySystemInformation;
 	//_NtSetInformationProcess_Win64      NtSetInformationProcess;
-	//_NtQueryInformationProcess_Win64    NtQueryInformationProcess;
+	_NtQueryInformationProcess_Win64    NtQueryInformationProcess;
 	_NtQueryInformationThread_Win64     NtQueryInformationThread;
     _NtClose_Win64				        NtClose;
     _NtDelayExecution_Win64             NtDelayExecution;
@@ -1347,6 +1365,26 @@ __declspec(noinline) static DWORD WINAPI GetExitCodeThread_Internal(HANDLE hThre
 }
 
 
+__declspec(noinline) static DWORD WINAPI GetExitCodeProcess_Internal(HANDLE hProcess)
+{
+    if (!API)
+    {
+        BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
+        return 0;
+    }
+    PNTSYSAPIADDR DecAPI = *(PPNTSYSAPIADDR)~API;
+    PROCESS_BASIC_INFORMATION pbi = { 0 };
+    NTSTATUS ret = DecAPI->NtQueryInformationProcess(hProcess, ProcessBasicInformation, &pbi, sizeof(PROCESS_BASIC_INFORMATION), NULL);
+    if (ret)
+    {
+        BaseSetLastNTError_inter(ret);
+        return 0;
+    }
+
+    return pbi.ExitStatus;
+}
+
+
 __declspec(noinline) static HANDLE WINAPI OpenProcess_Internal(DWORD dwDesiredAccess, DWORD dwProcessId)
 {
     if (!API)
@@ -1449,6 +1487,7 @@ __declspec(noinline) static BOOL WINAPI TerminateProcess_Internal(HANDLE hProces
 
 static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCALL_SCNUMBER* SCnum_struct, PNTSYSAPIADDR Store)
 {
+    __nop();
     //random var
     DWORD64 ra = __rdtsc();
     ra ^= (DWORD64)Store;
@@ -1537,6 +1576,9 @@ static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCAL
     startaddr += 0x20;
     *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_QueryInfoThread;
     Store->NtQueryInformationThread = (_NtQueryInformationThread_Win64)startaddr;
+    startaddr += 0x20;
+    *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_QueryInfoProc;
+    Store->NtQueryInformationProcess = (_NtQueryInformationProcess_Win64)startaddr;
 	startaddr += 0x20;
 	*(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_ResumeThread;
 	Store->NtResumeThread = (_NtResumeThread_Win64)startaddr;
@@ -1546,7 +1588,7 @@ static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCAL
 	startaddr += 0x20;
 	*(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_CloseHandle;
 	Store->NtClose = (_NtClose_Win64)startaddr;
-    //0xE
+    //0xF
     /*
     startaddr += 0x20;
     *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_CreateSec;
@@ -1882,7 +1924,7 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
 		*(DWORD64*)(&str_QInfoThread[8]) = 0x968B9E928D909991;
 		*(DWORD64*)(&str_QInfoThread[16]) = 0x9B9E9A8D97AB9190;
 		decbyte(str_QInfoThread, 3);
-		*(DWORD32*)(&str_QInfoThread[24]) = 0;
+		*(DWORD64*)(&str_QInfoThread[24]) = 0;
 		void* NtQInfoThread = GetProcAddress_Internal(ntdll, str_QInfoThread);
 		if (!NtQInfoThread)
 			return QUERY_INFO_THREAD_INITFAILED;
@@ -1900,11 +1942,34 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
 		}
 	}
     {
+        char str_QInfoProc[32];
+        *(DWORD64*)(&str_QInfoProc) = 0xB6868D9A8AAE8BB1;
+        *(DWORD64*)(&str_QInfoProc[8]) = 0x968B9E928D909991;
+        *(DWORD64*)(&str_QInfoProc[16]) = 0x8C9A9C908DAF9190;
+        decbyte(str_QInfoProc, 3);
+        *(DWORD64*)(&str_QInfoProc[24]) = 0x73;
+        void* NtQInfoProc = GetProcAddress_Internal(ntdll, str_QInfoProc);
+        if (!NtQInfoProc)
+            return QUERY_INFO_PROC_INITFAILED;
+        if (!isWine)
+        {
+            int i = ParseSyscallscNum(NtQInfoProc, &SC_number.sc_QueryInfoProc);
+            if (i != 1)
+            {
+                return QUERY_INFO_PROC_INITFAILED;
+            }
+        }
+        else
+        {
+            tempstore.NtQueryInformationProcess = (_NtQueryInformationProcess_Win64)NtQInfoProc;
+        }
+    }
+    {
         char str_Terminate[32];
         *(DWORD64*)(&str_Terminate) = 0x9196928D9AAB8BB1;
         *(DWORD64*)(&str_Terminate[8]) = 0x9A9C908DAF9A8B9E;
         decbyte(str_Terminate, 3);
-        *(DWORD32*)(&str_Terminate[16]) = 0x7373;
+        *(DWORD64*)(&str_Terminate[16]) = 0x7373;
         void* NtTerminate = GetProcAddress_Internal(ntdll, str_Terminate);
         if (!NtTerminate)
             return TERMINATE_INITFAILED;
@@ -1998,7 +2063,7 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
         *(DWORD64*)(&str_delay) = 0xBA869E939ABB8BB1;
         *(DWORD64*)(&str_delay[8]) = 0x9190968B8A9C9A87;
         decbyte(str_delay, 2);
-        *(DWORD32*)(&str_delay[16]) = 0;
+        *(DWORD64*)(&str_delay[16]) = 0;
         BYTE* Ntdelay = (BYTE*)GetProcAddress_Internal(ntdll, str_delay);
         if (!Ntdelay)
             return 0xDEADC0DE;
