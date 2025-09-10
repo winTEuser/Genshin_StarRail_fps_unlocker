@@ -2036,7 +2036,7 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t
                 goto __exit_block;
             }
             
-            Phooked_func_struct Psettingbug = (Phooked_func_struct)(ui_payload_temp + 0x500);
+            Phooked_func_struct Psettingbug = (Phooked_func_struct)hook_info_ptr;
             Psettingbug->func_addr = GI_Func->setbug_fix;
             //settingbugfix
             if (!ReadProcessMemoryInternal(Tar_handle, (void*)GI_Func->setbug_fix, (void*)&Psettingbug->orgpart, 0x10, 0))
