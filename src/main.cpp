@@ -876,7 +876,7 @@ static uint8_t InitCPUFeatures()
 static uint8_t g_cpuFeatures = InitCPUFeatures();
 
 //pure C 特征搜索
-static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, const char* signature)
+__declspec(noinline) static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, const char* signature)
 {
     if (!signature || !startAddress || !regionSize)
         return 0;
@@ -2128,6 +2128,15 @@ static HMODULE RemoteDll_Inject(HANDLE Tar_handle, LPCWSTR DllPath)
             goto __inject_proc;
         }
 		Show_Error_Msg(L"DllPath Not Found!");
+        return 0;
+    }
+    else
+    {
+        PPEB64 peb_base = GetProcessPEB(Tar_handle);
+        HMODULE result = 0;
+        if (!ReadProcessMemoryInternal(Tar_handle, ((PBYTE)peb_base + 0x10), &result, 0x8, 0))
+            return 0;
+        return result;
     }
 
 __inject_proc:
@@ -2136,14 +2145,7 @@ __inject_proc:
     {
         HMODULE result = 0;
         DWORD64 payload[4] = { 0 };
-        if (!DllPath)
-        {
-            payload[0] = 0x5848606A38EC8348;
-            payload[1] = 0x10408B48008B4865;
-            payload[2] = 0xFE805894844;
-            payload[3] = 0xCCCCCCC338C48348;
-        }
-        else
+        if (1)
         {
             payload[0] = 0xB848C03138EC8348;
             payload[1] = (DWORD64)&LoadLibraryW;
@@ -2155,7 +2157,7 @@ __inject_proc:
             if (VirtualProtectEx_Internal(Tar_handle, buffer, 0x1000, PAGE_EXECUTE_READ, 0))
             {
                 LPVOID RCX = 0;
-                if (DllPath)
+                if (1)
                 {
                     if (!WriteProcessMemoryInternal(Tar_handle, ((BYTE*)buffer) + 0x1000, (void*)DllPath, strlen, 0))
                     {
@@ -2770,11 +2772,12 @@ __genshin_il:
                 Use_mobile_UI = 0;
             }
             //Unhook_hook
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 89 F1 E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 80 B9 ?? ?? ?? ?? 00");
+            //old 48 89 F1 E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 80 B9 ?? ?? ?? ?? 00
+            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D");
             if (address)
             {
                 int64_t rip = address;
-                rip += 0xC;
+                rip += 0x9;
                 rip += *(int32_t*)(rip)+4;
                 GI_Func.Unhook_func = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
             }

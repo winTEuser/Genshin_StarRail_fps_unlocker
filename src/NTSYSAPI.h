@@ -33,9 +33,12 @@
 #define QUERY_INFO_PROC_INITFAILED      (0xC012)
 
 #include <Windows.h>
-#include <intrin.h>
-#include <immintrin.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <locale.h>
+#include <intrin.h>
+#include <emmintrin.h>
+#include <immintrin.h>
 
 
 NTSTATUS init_API(void);
@@ -1385,6 +1388,26 @@ __declspec(noinline) static DWORD WINAPI GetExitCodeProcess_Internal(HANDLE hPro
 }
 
 
+__declspec(noinline) static PPEB64 WINAPI GetProcessPEB(HANDLE hProcess)
+{
+    if (!API)
+    {
+        BaseSetLastNTError_inter(STATUS_ACCESS_VIOLATION);
+        return 0;
+    }
+    PNTSYSAPIADDR DecAPI = *(PPNTSYSAPIADDR)~API;
+    PROCESS_BASIC_INFORMATION pbi = { 0 };
+    NTSTATUS ret = DecAPI->NtQueryInformationProcess(hProcess, ProcessBasicInformation, &pbi, sizeof(PROCESS_BASIC_INFORMATION), NULL);
+    if (ret)
+    {
+        BaseSetLastNTError_inter(ret);
+        return 0;
+    }
+
+    return pbi.PebBaseAddress;
+}
+
+
 __declspec(noinline) static HANDLE WINAPI OpenProcess_Internal(DWORD dwDesiredAccess, DWORD dwProcessId)
 {
     if (!API)
@@ -2233,7 +2256,7 @@ static NTSTATUS init_API()
     return init_Status;
 }
 
-static DWORD MessageBoxW_Internal(LPCWSTR lpText, LPCWSTR lpCaption, UINT uType)
+__declspec(noinline) static DWORD MessageBoxW_Internal(LPCWSTR lpText, LPCWSTR lpCaption, UINT uType)
 {
     UNICODE_STRING message_str;
     UNICODE_STRING title_str;
