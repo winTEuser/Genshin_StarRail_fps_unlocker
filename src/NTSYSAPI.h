@@ -2178,9 +2178,8 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
         NTSTATUS ret = tempstore.NtAllocateVirtualMemory((HANDLE)-1, &addr, 0, &sz, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
         if (ret)
             return ret;
-        *(DWORD64*)addr = (addr + 1000);
-        addr += 1000;
-        memcpy((void*)addr, &tempstore, sizeof(NTSYSAPIADDR));
+        *(DWORD64*)addr = (addr + 0x1000);
+        memcpy((void*)(addr + 0x1000), &tempstore, sizeof(NTSYSAPIADDR));
         DWORD oldp;
         ret = tempstore.NtProtectVirtualMemory((HANDLE)-1, &addr, &sz, PAGE_READONLY, &oldp);
         if (ret)
