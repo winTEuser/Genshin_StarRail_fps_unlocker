@@ -1331,8 +1331,8 @@ __exit_block:
             Show_Error_Msg(L"Create SyncThread Fail! ");
             return 0;
         }
-
-        if (WaitForSingleObject(hThread, 2000) != 0x102)
+        WaitForSingleObject(hThread, 1000);
+        if (1)
         {
             int32_t ecode = GetExitCodeThread_Internal(hThread);
             if (ecode < 0)
@@ -1438,22 +1438,22 @@ static HMODULE RemoteDll_Inject_mem(HANDLE Tar_handle, LPCWSTR DllPath)
 {
     LPVOID buffer = 0;
     SIZE_T file_size = 0;
-	if (DllPath)
-	{
-		HANDLE file_Handle = CreateFileW(DllPath, GENERIC_READ, NULL, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (DllPath)
+    {
+        HANDLE file_Handle = CreateFileW(DllPath, GENERIC_READ, NULL, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
         if (file_Handle != INVALID_HANDLE_VALUE)
         {
-            GetFileSizeEx(file_Handle, (PLARGE_INTEGER) &file_size);
+            GetFileSizeEx(file_Handle, (PLARGE_INTEGER)&file_size);
             buffer = VirtualAlloc_Internal(NULL, file_size, PAGE_READWRITE);
-			if (!buffer)
-			{
-				Show_Error_Msg(L"VirtualAlloc Failed! (loadlib mem)");
-				CloseHandle_Internal(file_Handle);
-				return 0;
-			}
-            if(ReadFile(file_Handle, buffer, file_size, NULL, NULL))
+            if (!buffer)
             {
-                if(*(WORD*)buffer == 0x5A4D)
+                Show_Error_Msg(L"VirtualAlloc Failed! (loadlib mem)");
+                CloseHandle_Internal(file_Handle);
+                return 0;
+            }
+            if (ReadFile(file_Handle, buffer, file_size, NULL, NULL))
+            {
+                if (*(WORD*)buffer == 0x5A4D)
                 {
                     CloseHandle_Internal(file_Handle);
                     goto __inject_proc;
@@ -1468,29 +1468,28 @@ static HMODULE RemoteDll_Inject_mem(HANDLE Tar_handle, LPCWSTR DllPath)
                 Show_Error_Msg(L"ReadFile Failed! (loadlib mem)");
             }
             CloseHandle_Internal(file_Handle);
-			VirtualFree_Internal(buffer, 0, MEM_RELEASE);
+            VirtualFree_Internal(buffer, 0, MEM_RELEASE);
             return 0;
         }
-		Show_Error_Msg(L"Open LibFile Failed!");
-	}
+        Show_Error_Msg(L"Open LibFile Failed!");
+    }
     return 0;
 
 __inject_proc:
     HMODULE result = 0;
     LPVOID buffer_load = VirtualAllocEx_Internal(Tar_handle, NULL, 0x2000, PAGE_READWRITE);
-	LPVOID shell_mem_load = VirtualAllocEx_Internal(Tar_handle, NULL, sizeof(_PE_MEM_LOADER), PAGE_READWRITE);
+    LPVOID shell_mem_load = VirtualAllocEx_Internal(Tar_handle, NULL, sizeof(_PE_MEM_LOADER), PAGE_READWRITE);
     LPVOID file_buffer = VirtualAllocEx_Internal(Tar_handle, NULL, file_size, PAGE_READWRITE);
     if (buffer_load && shell_mem_load && file_buffer)
     {
-        DWORD64 payload[6] = { 0 };
-        payload[0] = 0xBA48C03128EC8348;
-        payload[1] = (DWORD64)&LoadLibraryA;
-        payload[2] = 0x484C0000001215FF;
-        payload[3] = 0xC03300000FE20589;
-        payload[4] = 0xCCCCCCC328C48348;
-        payload[5] = (DWORD64)shell_mem_load;
-        if (WriteProcessMemoryInternal(Tar_handle, buffer_load, &payload, 0x30, 0) && 
-            WriteProcessMemoryInternal(Tar_handle, shell_mem_load, (LPVOID) &_PE_MEM_LOADER, sizeof(_PE_MEM_LOADER), 0) &&
+        DWORD64 payload[5] = { 0 };
+        payload[0] = 0x15FFC03128EC8348;
+        payload[1] = 0x0589484800000014;
+        payload[2] = 0x8348C03300000FEC;
+        payload[3] = 0xCCCCCCCCCCC328C4;
+        payload[4] = (DWORD64)shell_mem_load;
+        if (WriteProcessMemoryInternal(Tar_handle, buffer_load, &payload, 0x30, 0) &&
+            WriteProcessMemoryInternal(Tar_handle, shell_mem_load, (LPVOID)&_PE_MEM_LOADER, sizeof(_PE_MEM_LOADER), 0) &&
             WriteProcessMemoryInternal(Tar_handle, file_buffer, buffer, file_size, 0))
         {
             VirtualFree_Internal(buffer, 0, MEM_RELEASE);
@@ -1501,11 +1500,11 @@ __inject_proc:
                 HANDLE hThread = CreateRemoteThreadEx_Internal(Tar_handle, 0, (LPTHREAD_START_ROUTINE)buffer_load, file_buffer);
                 if (hThread)
                 {
-                    if (WaitForSingleObject(hThread, 60000)) 
+                    if (WaitForSingleObject(hThread, 60000))
                     {
                         Show_Error_Msg(L"Lib load Wait Time out!");
                         CloseHandle_Internal(hThread);
-						goto __failure_safe_exit;
+                        goto __failure_safe_exit;
                     }
                     else
                     {
@@ -1514,8 +1513,8 @@ __inject_proc:
                         {
                             BaseSetLastNTError_inter(ecode);
                             Show_Error_Msg(L"Lib load has an error occurred! Game has crashed");
-							CloseHandle_Internal(hThread);
-							ExitProcess(0);
+                            CloseHandle_Internal(hThread);
+                            ExitProcess(0);
                         }
                         else
                         {
@@ -1529,17 +1528,17 @@ __inject_proc:
                     Show_Error_Msg(L"CreateThread Failed! (loadlib mem)");
                 }
             }
-			else
-			{
-				Show_Error_Msg(L"VirtualProtectEx Failed! (loadlib mem)");
-			}
+            else
+            {
+                Show_Error_Msg(L"VirtualProtectEx Failed! (loadlib mem)");
+            }
         }
         else
         {
-			Show_Error_Msg(L"WriteProcessMemory Failed! (loadlib mem)");
+            Show_Error_Msg(L"WriteProcessMemory Failed! (loadlib mem)");
         }
     }
-	else
+    else
     {
         Show_Error_Msg(L"VirtualAllocEx Failed! (loadlib mem)");
     }
@@ -1550,6 +1549,7 @@ __failure_safe_exit:
     VirtualFree_Internal(buffer, 0, MEM_RELEASE);
     return result;
 }
+
 
 //Get the address of the ptr in the target process
 static uint64_t Hksr_ENmobile_get_Ptr(HANDLE Tar_handle, LPCWSTR GPath)
@@ -1668,7 +1668,7 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
     
-    wprintf_s(L"FPS unlocker 2.9.0\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTKver: %u\nNTDLLver: %u\n", (uint32_t)*(uint16_t*)(0x7FFE0260), ParseOSBuildBumber());
+    wprintf_s(L"FPS unlocker 2.9.1\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTKver: %u\nNTDLLver: %u\n", (uint32_t)*(uint16_t*)(0x7FFE0260), ParseOSBuildBumber());
 
     if (NTSTATUS r = init_API())
     {
@@ -2065,6 +2065,7 @@ __genshin_il:
     }
 
 __Continue:
+    wprintf_s(L"Inject...\n");
     uintptr_t Patch_buffer = inject_patch(pi->hProcess, Unityplayer_baseAddr, pfps, &injectarg);
     if (!Patch_buffer)
     {
@@ -2083,7 +2084,7 @@ __Continue:
             Show_Error_Msg(L"Dll Inject Fail !\n");
         }
         wstring str_addr = To_Hexwstring_64bit((uint64_t)mod);
-        wprintf_s(L"plugin baseAddr : 0x%s", str_addr.c_str());
+        wprintf_s(L"Plugin BaseAddr : 0x%s", str_addr.c_str());
         free(barg.Path_Lib);
     }
     

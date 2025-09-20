@@ -1526,18 +1526,18 @@ static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCAL
     WORD ra4 = (~raRAXH ^ ra) & 0xFFFF;
 
     BYTE* startaddr = (BYTE*)buff + (DWORD)((DWORD)(ra1 & 0xFF) << 4);//private syscall start addr
-    BYTE* call = ((startaddr + 0x400) + (DWORD)((DWORD)(ra2 & 0xFF) << 4));//jump to buildfakestack addr
-    BYTE* spoofcalladdr = ((call + 0x30) + (DWORD)((DWORD)(ra3 & 0xFF) << 4));//buildfakestack addr
-    BYTE* restoreaddr = ((spoofcalladdr + 0x30) + (DWORD)((DWORD)(ra4 & 0xFF) << 4));//restore stack addr
+    BYTE* precall = ((startaddr + 0x800) + (DWORD)((DWORD)(ra2 & 0xFF) << 4));//jump to buildfakestack addr
+    BYTE* spoofcalladdr = ((precall + 0x40) + (DWORD)((DWORD)(ra3 & 0xFF) << 4));//buildfakestack addr
+    BYTE* restoreaddr = ((spoofcalladdr + 0x60) + (DWORD)((DWORD)(ra4 & 0xFF) << 4));//restore stack addr
 
     //jump to buildfakestack part
-    *(DWORD64*)call = 0xB94850592414874C;
-    *(DWORD64*)(call + 0x8) = ~(DWORD64)CallAddr;
-    *(DWORD32*)(call + 0x10) = 0x058D4850;
-    *(DWORD32*)(call + 0x14) = (restoreaddr - (call + 0x18));//restoreva
-    *(DWORD64*)(call + 0x18) = (0x2404C748 | ((DWORD64)spoofcalladdr << 32));
-    *(DWORD64*)(call + 0x20) = (0x42444C7 | ((DWORD64)spoofcalladdr & 0xFFFFFFFF00000000));
-    *(call + 0x28) = 0xC3;
+    *(DWORD64*)(precall + 0x00) = 0xB94850592414874C;
+    *(DWORD64*)(precall + 0x08) = ~(DWORD64)CallAddr;
+    *(DWORD32*)(precall + 0x10) = 0x058D4850;
+    *(DWORD32*)(precall + 0x14) = (restoreaddr - (precall + 0x18));//restoreva
+    *(DWORD64*)(precall + 0x18) = (0x2404C748 | ((DWORD64)spoofcalladdr << 32));
+    *(DWORD64*)(precall + 0x20) = (0x42444C7 | ((DWORD64)spoofcalladdr & 0xFFFFFFFF00000000));
+    *(precall + 0x28) = 0xC3;
 
     //restore stack part
     *(DWORD64*)(restoreaddr + 0x00) = 0xFFFFFF0024A48D48;
@@ -1559,13 +1559,17 @@ static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCAL
     *(DWORD64*)(spoofcalladdr + 0x48) = 0x40874858244411;
     *(DWORD64*)(spoofcalladdr + 0x50) = 0xCCCCE1FFD1F74844;
 
+    *(DWORD64*)(startaddr + 0x20) = 0xB948FFFFFFFFB851;
+    *(DWORD64*)(startaddr + 0x28) = ~(DWORD64)precall;
+    *(DWORD64*)(startaddr + 0x30) = 0xCCCCE1FFD1F74844;
+    *(DWORD64*)(startaddr + 0x38) = 0xCCCCCCCCCCCCCCCC;
+    __m128i firstpart = _mm_loadu_si128((__m128i*)(startaddr + 0x20));
+    __m128i secndpart = _mm_loadu_si128((__m128i*)(startaddr + 0x30));
     //private syscall build
-    for(int i = 0; i != 0x10; i++)
+    for (int i = 0; i != 0x10; i++)
     {
-        *(DWORD64*)(startaddr + (i * 0x20)) = 0xB948FFFFFFFFB851;
-        *(DWORD64*)(startaddr + (i * 0x20) + 0x8) = ~(DWORD64)call;
-        *(DWORD64*)(startaddr + (i * 0x20) + 0x10) = 0xCCCCE1FFD1F74844;
-        *(DWORD64*)(startaddr + (i * 0x20) + 0x18) = 0xCCCCCCCCCCCCCCCC;
+        *(__m128i*)(startaddr + (i * 0x20)) = firstpart;
+        *(__m128i*)(startaddr + (i * 0x20) + 0x10) = secndpart;
     }
     *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_AllocMem;
     Store->NtAllocateVirtualMemory = (_NtAllocateVirtualMemory_Win64)startaddr;
