@@ -1180,8 +1180,8 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t
     *(uint64_t*)(_sc_buffer + 0x88) = (uint64_t)(&CloseHandle);
     *(uint64_t*)(_sc_buffer + 0x90) = (uint64_t)(&GetForegroundWindow);
     //onlyGI
-    *(uint32_t*)(_sc_buffer + 0x160) = Target_set_60;
-    *(uint32_t*)(_sc_buffer + 0x168) = Target_set_30;
+    *(uint32_t*)(_sc_buffer + 0x150) = Target_set_60;
+    *(uint32_t*)(_sc_buffer + 0x158) = Target_set_30;
 
     //Disable errmsg
     if (AutoExit)

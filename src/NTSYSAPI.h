@@ -1559,17 +1559,17 @@ static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCAL
     *(DWORD64*)(spoofcalladdr + 0x48) = 0x40874858244411;
     *(DWORD64*)(spoofcalladdr + 0x50) = 0xCCCCE1FFD1F74844;
 
-    *(DWORD64*)(startaddr + 0x20) = 0xB948FFFFFFFFB851;
-    *(DWORD64*)(startaddr + 0x28) = ~(DWORD64)precall;
-    *(DWORD64*)(startaddr + 0x30) = 0xCCCCE1FFD1F74844;
-    *(DWORD64*)(startaddr + 0x38) = 0xCCCCCCCCCCCCCCCC;
-    __m128i firstpart = _mm_loadu_si128((__m128i*)(startaddr + 0x20));
-    __m128i secndpart = _mm_loadu_si128((__m128i*)(startaddr + 0x30));
+    *(DWORD64*)(startaddr + 0x00) = 0xB948FFFFFFFFB851;
+    *(DWORD64*)(startaddr + 0x08) = ~(DWORD64)precall;
+    *(DWORD64*)(startaddr + 0x10) = 0xCCCCE1FFD1F74844;
+    *(DWORD64*)(startaddr + 0x18) = 0xCCCCCCCCCCCCCCCC;
+    __m128i firstpart = _mm_loadu_si128((__m128i*)(startaddr));
+    __m128i secndpart = _mm_loadu_si128((__m128i*)(startaddr + 0x10));
     //private syscall build
-    for (int i = 0; i != 0x10; i++)
+    for (int i = 1; i != 0x10; i++)
     {
-        *(__m128i*)(startaddr + (i * 0x20)) = firstpart;
-        *(__m128i*)(startaddr + (i * 0x20) + 0x10) = secndpart;
+		_mm_storeu_si128((__m128i*)(startaddr + (i * 0x20)), firstpart);
+		_mm_storeu_si128((__m128i*)(startaddr + (i * 0x20) + 0x10), secndpart);
     }
     *(DWORD*)(startaddr + 0x2) = SCnum_struct->sc_AllocMem;
     Store->NtAllocateVirtualMemory = (_NtAllocateVirtualMemory_Win64)startaddr;
