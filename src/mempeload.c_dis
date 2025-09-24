@@ -114,9 +114,9 @@ static DWORD64 load_pe(LPVOID pe_data)
     if(1)
     {
         //Handle TLS callbacks
-        PIMAGE_TLS_DIRECTORY tls = (PIMAGE_TLS_DIRECTORY)((PBYTE)base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
-        if (tls)
+        if (nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress)
         {
+            PIMAGE_TLS_DIRECTORY tls = (PIMAGE_TLS_DIRECTORY)((PBYTE)base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
             PIMAGE_TLS_CALLBACK* callbacks = (PIMAGE_TLS_CALLBACK*)tls->AddressOfCallBacks;
             if (callbacks)
             {
