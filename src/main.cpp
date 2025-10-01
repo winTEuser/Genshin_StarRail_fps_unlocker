@@ -113,15 +113,20 @@ static uint8_t InitCPUFeatures()
 
 static uint8_t g_cpuFeatures = InitCPUFeatures();
 
-//pure C 特征搜索
-__declspec(noinline) static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, const char* signature)
+typedef struct {
+    uintptr_t* buffer;     // 存储匹配地址缓冲区
+    size_t maxCount;       // 缓冲区最大容量(数量)
+    size_t count;          // 实际找到的匹配数量
+} PatternScanInfo;
+
+__declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress, size_t regionSize, const char* signature, PatternScanInfo* results)
 {
-    if (!signature || !startAddress || !regionSize)
+    if (!signature || !startAddress || !regionSize || !results || !results->buffer || results->maxCount == 0)
         return 0;
 
     size_t patternLen = 0;
     const char* p = signature;
-    __nop(); __nop(); __nop();
+
     while (*p)
     {
         if (*p == ' ') { p++; continue; }
@@ -142,6 +147,7 @@ __declspec(noinline) static uintptr_t PatternScan_Region(uintptr_t startAddress,
 
     // 内存分配优化
     const size_t kStackThreshold = 128;
+
     int stackPattern[kStackThreshold];
     int* patternBytes = 0;
     if (patternLen <= kStackThreshold)
@@ -186,18 +192,12 @@ __declspec(noinline) static uintptr_t PatternScan_Region(uintptr_t startAddress,
         return 0;
     }
 
-    // 全通配符特例处理
-    if (patternLen == 1 && patternBytes[0] == -1)
-    {
-        if (patternLen > kStackThreshold) free(patternBytes);
-        return regionSize ? startAddress : 0;
-    }
-
     uint8_t* scanBytes = (uint8_t*)startAddress;
     const size_t scanEnd = regionSize - patternLen;
-    uintptr_t result = 0;
     int firstByte = -1;
     size_t firstIndex = 0;
+
+    // 查找第一个非通配符字节
     for (; firstIndex < patternLen; firstIndex++)
     {
         if (patternBytes[firstIndex] != -1)
@@ -206,32 +206,39 @@ __declspec(noinline) static uintptr_t PatternScan_Region(uintptr_t startAddress,
             break;
         }
     }
+
+    // 全是通配符
     if (firstByte == -1)
     {
-        if (regionSize >= patternLen)
-        {
-            result = (uintptr_t)scanBytes;
-        }
         if (patternLen > kStackThreshold) free(patternBytes);
-        return result;
+        return startAddress;
     }
-    __nop(); __nop(); __nop();
+
+    uintptr_t* result_buffer = results->buffer;
+    size_t Maxnum = results->maxCount - 1;
+    size_t Count = 0;
+
     if (g_cpuFeatures & AVX512_Support)
     {
-        size_t scanEnd = regionSize - patternLen;
-        size_t stepSize = 64;
         __m512i firstByteVec = _mm512_set1_epi8((char)firstByte);
-        for (size_t i = 0; i <= scanEnd; i += stepSize)
+        for (size_t i = 0; i <= scanEnd; i += sizeof(__m512i))
         {
-            if (i + 64 >= regionSize) break;
+            if (i > regionSize)
+            {
+                scanBytes = scanBytes + i;
+                regionSize = regionSize - i;
+                break;
+            }
             __m512i block = _mm512_loadu_si512((const __m512i*)(scanBytes + i));
             __mmask64 mask = _mm512_cmpeq_epi8_mask(block, firstByteVec);
+
             while (mask != 0)
             {
                 DWORD bit;
                 _BitScanForward64(&bit, mask);
                 mask &= mask - 1;
                 size_t pos = i + bit;
+                __nop();
                 if (pos > scanEnd) continue;
                 int match = 1;
                 for (size_t j = firstIndex + 1; j < patternLen; j++)
@@ -243,32 +250,43 @@ __declspec(noinline) static uintptr_t PatternScan_Region(uintptr_t startAddress,
                         break;
                     }
                 }
+
                 if (match)
                 {
-                    _mm256_zeroupper();
-                    if (patternLen > kStackThreshold) free(patternBytes);
-                    return (uintptr_t)(scanBytes + pos);
+                    uintptr_t foundAddr = (uintptr_t)(scanBytes + pos);
+                    result_buffer[Count++] = foundAddr;
+                    if (Count > Maxnum)
+                    {
+                        goto __Exit_scan_0;
+                    }
                 }
             }
         }
+    __Exit_scan_0:
         _mm256_zeroupper();
     }
     else if (g_cpuFeatures & AVX2_Support)
     {
         __m256i firstByteVec = _mm256_set1_epi8((char)firstByte);
-        size_t stepSize = 32;
-        for (size_t i = 0; i <= scanEnd; i += stepSize)
+        for (size_t i = 0; i <= scanEnd; i += sizeof(__m256i))
         {
-            if (i + 31 >= regionSize) break;
+            if (i > regionSize)
+            {
+                scanBytes = scanBytes + i;
+                regionSize = regionSize - i;
+                break;
+            }
             __m256i block = _mm256_loadu_si256((const __m256i*)(scanBytes + i));
             __m256i cmp = _mm256_cmpeq_epi8(block, firstByteVec);
             DWORD mask = (DWORD)_mm256_movemask_epi8(cmp);
+            __nop();
             while (mask != 0)
             {
                 DWORD bit;
                 _BitScanForward(&bit, mask);
                 mask &= mask - 1;
                 size_t pos = i + bit;
+
                 if (pos > scanEnd) continue;
                 int match = 1;
                 for (size_t j = firstIndex + 1; j < patternLen; j++)
@@ -280,103 +298,109 @@ __declspec(noinline) static uintptr_t PatternScan_Region(uintptr_t startAddress,
                         break;
                     }
                 }
+
                 if (match)
                 {
-                    _mm256_zeroupper();
-                    if (patternLen > kStackThreshold) free(patternBytes);
-                    return (uintptr_t)(scanBytes + pos);
+                    uintptr_t foundAddr = (uintptr_t)(scanBytes + pos);
+                    result_buffer[Count++] = foundAddr;
+                    if (Count > Maxnum)
+                    {
+                        goto __Exit_scan_1;
+                    }
                 }
             }
         }
+    __Exit_scan_1:
         _mm256_zeroupper();
     }
     else
     {
-        // SSE
         __m128i firstByteVec = _mm_set1_epi8((char)firstByte);
-        size_t stepSize = 16;
-        for (size_t i = 0; i <= scanEnd; i += stepSize)
+        for (size_t i = 0; i <= scanEnd; i += sizeof(__m128i))
         {
-            if (i + 16 >= regionSize) break;
+            if (i > regionSize)
+            {
+                scanBytes = scanBytes + i;
+                regionSize = regionSize - i;
+                break;
+            }
             __m128i block = _mm_loadu_si128((const __m128i*)(scanBytes + i));
             __m128i cmp = _mm_cmpeq_epi8(block, firstByteVec);
             DWORD mask = (DWORD)_mm_movemask_epi8(cmp);
+
             while (mask != 0)
             {
                 DWORD bit;
                 _BitScanForward(&bit, mask);
                 mask &= mask - 1;
                 size_t pos = i + bit;
+                __nop();
                 if (pos > scanEnd) continue;
                 int match = 1;
                 for (size_t j = firstIndex + 1; j < patternLen; j++)
                 {
                     if (patternBytes[j] == -1) continue;
-
                     if (scanBytes[pos + j] != (uint8_t)patternBytes[j])
                     {
                         match = 0;
                         break;
                     }
                 }
+
                 if (match)
                 {
-                    if (patternLen > kStackThreshold) free(patternBytes);
-                    return (uintptr_t)(scanBytes + pos);
+                    uintptr_t foundAddr = (uintptr_t)(scanBytes + pos);
+                    result_buffer[Count++] = foundAddr;
+                    if (Count > Maxnum)
+                    {
+                        goto __Exit_scan_2;
+                    }
                 }
             }
         }
     }
-
-    // No SIMD
-    size_t skipTable[256] = { 0 };
-    __nop();
-    for (size_t i = 0; i < patternLen; i++)
+__Exit_scan_2:
+    if ((patternLen > regionSize) || (Count > Maxnum))
     {
-        if (patternBytes[i] != -1)
-        {
-            skipTable[(uint8_t)patternBytes[i]] = patternLen - i - 1;
-        }
+        if (patternLen > kStackThreshold) free(patternBytes);
+        results->count = Count;
+        return result_buffer[0];
     }
-    size_t i = 0;
-    while (i <= scanEnd)
+    __nop(); __nop(); __nop(); __nop();
+    for (size_t i = 0; i < regionSize - patternLen; ++i)
     {
-        int match = 1;
-        size_t j = patternLen - 1;
-
-        while (j != (size_t)-1)
+        bool found = true;
+        for (size_t j = 0; j < patternLen; ++j)
         {
-            if (patternBytes[j] == -1)
+            if (patternBytes[j] != -1 && scanBytes[i + j] != patternBytes[j])
             {
-                j--;
-                continue;
-            }
-
-            if (scanBytes[i + j] != (uint8_t)patternBytes[j])
-            {
-                match = 0;
+                found = false;
                 break;
             }
-            j--;
         }
-        if (match)
+        if (found)
         {
-            if (patternLen > kStackThreshold) free(patternBytes);
-            return (uintptr_t)(scanBytes + i);
-        }
-        if (i + patternLen < regionSize)
-        {
-            size_t skip = skipTable[scanBytes[i + patternLen]];
-            i += (skip > 0) ? skip : 1;
-        }
-        else
-        {
-            i++;
+            result_buffer[Count++] = (uintptr_t)&scanBytes[i];
+            // 检查是否达到最大容量
+            if (Count > Maxnum)
+            {
+                goto __Exit_scan_3;
+            }
         }
     }
-
+__Exit_scan_3:
+    results->count = Count;
     if (patternLen > kStackThreshold) free(patternBytes);
-    return 0;
+    return result_buffer[0];
+}
+
+
+static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, const char* signature)
+{
+    uintptr_t results_buffer[1] = { 0 };
+    PatternScanInfo results = { results_buffer, 1, 0 };
+    uintptr_t result = PatternScanRegionEx(startAddress, regionSize, signature, &results);
+    return result;
 }
 
 
@@ -1195,6 +1219,11 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t
         *(uint64_t*)(_sc_buffer + 0x10) = arg->Pfps;
     }
 
+    if (!isGenshin)
+    {
+        *(uint64_t*)(_sc_buffer + 0x18) = _ptr_fps;
+    }
+
     LPVOID Remote_payload_buffer = VirtualAllocEx_Internal(Tar_handle, NULL, 0x4000, PAGE_READWRITE);
     if (!Remote_payload_buffer)
     {
@@ -1843,10 +1872,19 @@ __Get_target_sec:
         }
         else
         {
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "FF E1");
-            if (address)
+            uintptr_t* buffer = (uintptr_t*)VirtualAlloc_Internal(0, 0x8000, PAGE_READWRITE);
+            if (buffer)
             {
-                injectarg.payloadoep = address - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                PatternScanInfo info;
+                info.buffer = buffer;
+                info.maxCount = (0x8000 / sizeof(uintptr_t));
+                address = PatternScanRegionEx((uintptr_t)Copy_Text_VA, Text_Vsize, "FF E1", &info);
+                if (address)
+                {
+                    address = buffer[((__rdtsc() ^ (DWORD64)buffer) % (info.count + 1))];
+                    injectarg.payloadoep = address - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                }
+				VirtualFree_Internal(buffer, 0, MEM_RELEASE);
             }
         }
     }
@@ -2069,7 +2107,7 @@ __Continue:
     uintptr_t Patch_buffer = inject_patch(pi->hProcess, Unityplayer_baseAddr, pfps, &injectarg);
     if (!Patch_buffer)
     {
-        Show_Error_Msg(L"Inject Fail !\n");
+        Show_Error_Msg(L"Inject Fail !!\n");
         TerminateProcess_Internal(pi->hProcess, 0);
         CloseHandle_Internal(pi->hProcess);
         return 0;
@@ -2077,11 +2115,15 @@ __Continue:
 
     if (barg.Path_Lib)
     {
-        wprintf_s(L"You may be banned for using this feature. Make sure you had checked the source and credibility of the plugin.\n\n");
-        HMODULE mod = RemoteDll_Inject_mem(pi->hProcess, barg.Path_Lib);
-        if (!mod)
+        HMODULE mod = 0;
+        DWORD dret = MessageBoxW_Internal(L"You may be banned for using this feature. Make sure you had checked the source and credibility of the plugin.\n\nClick Ok use mem load, Cancel to normal load", L"Load Info", 0x01);
+        if (dret == 6)
         {
-            Show_Error_Msg(L"Dll Inject Fail !\n");
+            mod = RemoteDll_Inject_mem(pi->hProcess, barg.Path_Lib);
+        }
+        else
+        {
+            mod = RemoteDll_Inject(pi->hProcess, barg.Path_Lib);
         }
         wstring str_addr = To_Hexwstring_64bit((uint64_t)mod);
         wprintf_s(L"Plugin BaseAddr : 0x%s", str_addr.c_str());
