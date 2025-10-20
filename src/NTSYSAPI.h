@@ -72,12 +72,6 @@ EXTERN_C NTSYSAPI DWORD NTAPI NtRaiseHardError(
     PDWORD      Response
     );
 
-EXTERN_C NTSYSAPI ULONG NTAPI RtlGetFullPathName_U(
-    _In_ PCWSTR FileName,
-    _In_ ULONG BufferLength,
-    _Out_writes_bytes_(BufferLength) PWSTR Buffer,
-    _Out_opt_ PWSTR* FilePart
-);
 
 static DWORD init_Status = -1;
 
@@ -1510,9 +1504,11 @@ __declspec(noinline) static BOOL WINAPI TerminateProcess_Internal(HANDLE hProces
 
 static __forceinline void init_syscall_buff(void* buff, void* CallAddr, NTSYSCALL_SCNUMBER* SCnum_struct, PNTSYSAPIADDR Store)
 {
-    __nop();
+	__nop(); __nop();
+
     //random var
-    DWORD64 ra = __rdtsc();
+    DWORD64 ra;
+    _rdrand64_step(&ra);
     ra ^= (DWORD64)Store;
     DWORD raRAXH = ra >> 32;
     DWORD raRAXL = ra & 0xFFFFFFFF;
@@ -1636,7 +1632,7 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
 {
     PEB64* peb = reinterpret_cast<PEB64*>(__readgsqword(*gspeb));
     //DWORD64 PCRTmain = (DWORD64)(peb->ImageBaseAddress) + (*(DWORD*)((DWORD64)(*(DWORD*)((DWORD64)(peb->ImageBaseAddress) + 0x3C) + (DWORD64)(peb->ImageBaseAddress)) + 0x28));
-    PMODULE_TABLE_ENTRY list = peb->Ldr->InMemoryOrderModuleList.Flink->Next;//跳过第一个用户程序模块
+    PMODULE_TABLE_ENTRY list = peb->Ldr->InMemoryOrderModuleList.Flink->Next;
     HMODULE ntdll = list->ModBase;
     HMODULE kernel32 = list->Next->ModBase;
     if (!ntdll)
@@ -2121,8 +2117,9 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
             DWORD64 addr;
             while (1)
             {
-                DWORD64 randomVA = __rdtsc();
-                randomVA &= 0x7FF;
+                DWORD64 randomVA;
+                _rdrand64_step(&randomVA);
+                randomVA &= 0x3FFF;
                 randomVA <<= 4;
                 randomVA += (DWORD64)Ntdelay;
                 if (((*(DWORD*)randomVA) & 0xFFFFFF) == 0xC3050F)
@@ -2133,8 +2130,9 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
             }
             while (1)
             {
-                DWORD64 randomVA = __rdtsc();
-                randomVA &= 0x7FF;
+                DWORD64 randomVA;
+                _rdrand64_step(&randomVA);
+                randomVA &= 0x3FFF;
                 randomVA <<= 4;
                 randomVA += (DWORD64)Ntdelay;
                 if (((*(DWORD*)randomVA) & 0xFFFFFF) == 0xC3050F)

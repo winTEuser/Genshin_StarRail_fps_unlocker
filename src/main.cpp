@@ -366,7 +366,6 @@ __Exit_scan_2:
         results->count = Count;
         return result_buffer[0];
     }
-    __nop(); __nop(); __nop(); __nop();
     for (size_t i = 0; i < regionSize - patternLen; ++i)
     {
         bool found = true;
@@ -399,8 +398,7 @@ static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, c
 {
     uintptr_t results_buffer[1] = { 0 };
     PatternScanInfo results = { results_buffer, 1, 0 };
-    uintptr_t result = PatternScanRegionEx(startAddress, regionSize, signature, &results);
-    return result;
+    return PatternScanRegionEx(startAddress, regionSize, signature, &results);
 }
 
 
@@ -1183,7 +1181,7 @@ typedef struct inject_arg
     PHook_func_list PfuncList;//Phook_funcPtr_list
 }inject_arg, *Pinject_arg;
 
-// Hotpatch
+//Code inject
 static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t _ptr_fps, inject_arg* arg)
 {
     if (!_ptr_fps)
@@ -1872,16 +1870,18 @@ __Get_target_sec:
         }
         else
         {
-            uintptr_t* buffer = (uintptr_t*)VirtualAlloc_Internal(0, 0x8000, PAGE_READWRITE);
+            uintptr_t* buffer = (uintptr_t*)VirtualAlloc_Internal(0, 0x20000, PAGE_READWRITE);
             if (buffer)
             {
                 PatternScanInfo info;
                 info.buffer = buffer;
-                info.maxCount = (0x8000 / sizeof(uintptr_t));
+                info.maxCount = (0x20000 / sizeof(uintptr_t));
                 address = PatternScanRegionEx((uintptr_t)Copy_Text_VA, Text_Vsize, "FF E1", &info);
                 if (address)
                 {
-                    address = buffer[((__rdtsc() ^ (DWORD64)buffer) % (info.count + 1))];
+                    DWORD64 randnum;
+					_rdrand64_step(&randnum);
+                    address = buffer[((randnum ^ (DWORD64)address) % (info.count + 1))];
                     injectarg.payloadoep = address - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
                 }
 				VirtualFree_Internal(buffer, 0, MEM_RELEASE);
@@ -2047,14 +2047,20 @@ __genshin_il:
         }
         else isHook = 0;
         //verfiyhook
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 8B 0D");
+        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 89 F1 E8 ?? ?? ?? ?? EB 0A BA 01 00 00 00");
         if (address)
+        {
+            int64_t rip = address;
+            rip += 0x4;
+            rip += *(int32_t*)(rip)+4;
+            injectarg.verfiy = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+        }
+        else if (address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 8B 0D"))
         {
             int64_t rip = address;
             rip += 0x1;
             rip += *(int32_t*)(rip)+4;
             injectarg.verfiy = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-            injectarg.PfuncList = &GI_Func;
         }
         else
         {
