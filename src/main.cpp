@@ -2106,6 +2106,7 @@ __genshin_il:
                 GI_Func.Pfunc_device_type = 0;
             }
         }
+        injectarg.PfuncList = &GI_Func;
     }
 
 __Continue:
