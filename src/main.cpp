@@ -635,9 +635,6 @@ static bool WriteConfig(int fps)
         content += L"IsAntiMisscontact=" + std::to_wstring(isAntimiss) + L"\n";
     }
     {
-        content += L"TargetDevice=" + std::to_wstring(Tar_Device) + L"\n";
-    }
-    {
         content += L"IsHookGameSet=" + std::to_wstring(isHook) + L"\n";
     }
     {
@@ -1016,7 +1013,6 @@ __path_ok:
     ErrorMsg_EN = reader.GetBoolean(L"Setting", L"EnableErrorMsg", ErrorMsg_EN);
     AutoExit = reader.GetBoolean(L"Setting", L"AutoExit", AutoExit);
     isHook = reader.GetBoolean(L"Setting", L"IsHookGameSet", isHook);
-    Tar_Device = reader.GetInteger(L"Setting", L"TargetDevice", DEFAULT_DEVICE);
     ConfigPriorityClass = reader.GetInteger(L"Setting", L"GameProcessPriority", ConfigPriorityClass);
     switch (ConfigPriorityClass)
     {
@@ -1165,10 +1161,12 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
 
 typedef struct Hook_func_list
 {
-    uint64_t Pfunc_device_type;//plat_flag
-    uint64_t Unhook_func;//hook_bootui
-    uint64_t setbug_fix; //func_patch
-    uint64_t null;
+    uint64_t UI_unhook_time;
+    uint64_t Func_gui_set;
+    uint64_t Func_input_set;
+    uint64_t Grph_class;
+    uint32_t Grph_UIcl_VA;
+	uint32_t Grph_inputcl_VA;
 }Hook_func_list, *PHook_func_list;
 
 typedef struct inject_arg
@@ -1247,8 +1245,27 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t
         *(uint32_t*)(_sc_buffer + 0x28) = 2;
         *(uint64_t*)(_sc_buffer + 0x30) = (uint64_t)Remote_payload_buffer + HKSR_UISet_FuncVA;
     }
-    if (GI_Func)
+    if (isGenshin && GI_Func)
     {
+        //hookverfiy
+        if (arg->verfiy)
+        {
+            *(uint64_t*)(_sc_buffer + 0x20) = ((uint64_t)Remote_payload_buffer + 0x2000);//Hookinfo_buffer
+            *(uint64_t*)(_sc_buffer + 0x28) = arg->verfiy;//func
+            if (!ReadProcessMemoryInternal(Tar_handle, (void*)arg->verfiy, (_sc_buffer + 0x60), 0x10, 0))
+            {
+                Show_Error_Msg(L"Failed ReadFunc 0xFF (GIverf)");
+                goto __exit_block;
+            }
+            uint64_t* hook_pa = (uint64_t*)(_sc_buffer + 0x70);
+            *hook_pa = 0x225FF;
+            *(hook_pa + 1) = ((uint64_t)Remote_payload_buffer + GI_hooked_Vfunc_VA);
+            if (!WriteProcessMemoryInternal(Tar_handle, (void*)arg->verfiy, hook_pa, 0x10, 0))
+            {
+                Show_Error_Msg(L"Failed hook (GIverf)");
+                goto __exit_block;
+            }
+        }
         if (1)//basefps
         {
             uint64_t Private_buffer = 0;
@@ -1277,61 +1294,19 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t
             hook_info_ptr = (uint64_t)hook_info_ptr + sizeof(hooked_func_struct);
         }
 
-        if (GI_Func->Pfunc_device_type)
+        if (GI_Func->UI_unhook_time)
         {
-            *(uint64_t*)(_sc_buffer + 0x40) = GI_Func->Unhook_func;
-            *(uint64_t*)(_sc_buffer + 0x48) = GI_Func->Pfunc_device_type + 1;//plat_flag func_va
-
-            if (ReadProcessMemoryInternal(Tar_handle, (void*)GI_Func->Unhook_func, (_sc_buffer + 0x50), 0x10, 0))
+            *(uint64_t*)(_sc_buffer + 0x40) = GI_Func->UI_unhook_time;
+            *(uint64_t*)(_sc_buffer + 0x48) = (uint64_t)Remote_payload_buffer + 0x3000;
+			memcpy(_sc_buffer + 0x3000, &GI_Func->Func_gui_set, sizeof(Hook_func_list) - sizeof(uint64_t));
+            if (ReadProcessMemoryInternal(Tar_handle, (void*)GI_Func->UI_unhook_time, (_sc_buffer + 0x50), 0x10, 0))
             {
                 uint64_t hookpart[2] = { 0x225FF,  ((uint64_t)Remote_payload_buffer + GI_UnHooked_UI_fVA) };
-                if (WriteProcessMemoryInternal(Tar_handle, (void*)GI_Func->Unhook_func, &hookpart, 0x10, 0))
-                {
-                    if (WriteProcessMemoryInternal(Tar_handle, (void*)(GI_Func->Pfunc_device_type + 1), &arg->Bootui, 4, 0))
-                    {
-                        if (GI_Func->setbug_fix)
-                        {
-                            Phooked_func_struct Psettingbug = (Phooked_func_struct)hook_info_ptr;
-                            Psettingbug->func_addr = GI_Func->setbug_fix;
-                            //settingbugfix
-                            if (ReadProcessMemoryInternal(Tar_handle, (void*)GI_Func->setbug_fix, (void*)&Psettingbug->orgpart, 0x10, 0))
-                            {
-                                Psettingbug->hookedpart = Psettingbug->orgpart;
-                                *(BYTE*)((uint64_t)(&Psettingbug->hookedpart) + 2) = 0xEB;
-                                hook_info_ptr = (uint64_t)hook_info_ptr + sizeof(hooked_func_struct);
-                            }
-                            else
-                            {
-                                wprintf_s(L"Failed in settingbugfix. (GI_UI)");
-                            }
-                        }
-
-                    }
-                    else Show_Error_Msg(L"Failed write payload 1(GIui)");
-                }
-                else Show_Error_Msg(L"Failed write payload 0(GIui)");
+                if (!WriteProcessMemoryInternal(Tar_handle, (void*)GI_Func->UI_unhook_time, &hookpart, 0x10, 0))
+                    Show_Error_Msg(L"Failed write payload 0(GIui)");
             }
             else Show_Error_Msg(L"Failed ReadFunc 0 (GIui)");
-        }
 
-        //hookverfiy
-        if(arg->verfiy)
-        {
-            *(uint64_t*)(_sc_buffer + 0x20) = ((uint64_t)Remote_payload_buffer + 0x2000);//Hookinfo_buffer
-            *(uint64_t*)(_sc_buffer + 0x28) = arg->verfiy;//func
-            if (!ReadProcessMemoryInternal(Tar_handle, (void*)arg->verfiy, (_sc_buffer + 0x60), 0x10, 0))
-            {
-                Show_Error_Msg(L"Failed ReadFunc 0xFF (GIverf)");
-                goto __exit_block;
-            }
-            uint64_t* hook_pa = (uint64_t*)(_sc_buffer + 0x70);
-            *hook_pa = 0x225FF;
-            *(hook_pa + 1) = ((uint64_t)Remote_payload_buffer + GI_hooked_Vfunc_VA);
-            if (!WriteProcessMemoryInternal(Tar_handle, (void*)arg->verfiy, hook_pa, 0x10, 0))
-            {
-                Show_Error_Msg(L"Failed hook (GIverf)");
-                goto __exit_block;
-            }
         }
     }
 __exit_block:
@@ -1782,13 +1757,13 @@ int main(/*int argc, char** argvA*/void)
         injectarg.Bootui = Hksr_ENmobile_get_Ptr(pi->hProcess, ProcessDir->c_str());
     }
     //加载和获取模块信息
-    LPVOID _mbase_PE_buffer = 0;
+    LPVOID _imgbase_PE_buffer = 0;
     uintptr_t Text_Remote_RVA = 0;
     uintptr_t Unityplayer_baseAddr = 0;
     uint32_t Text_Vsize = 0;
     
-    _mbase_PE_buffer = VirtualAlloc_Internal(0, 0x1000, PAGE_READWRITE);
-    if (_mbase_PE_buffer == 0)
+    _imgbase_PE_buffer = VirtualAlloc_Internal(0, 0x1000, PAGE_READWRITE);
+    if (_imgbase_PE_buffer == 0)
     {
         Show_Error_Msg(L"VirtualAlloc Failed! (PE_buffer)");
         TerminateProcess_Internal(pi->hProcess, 0);
@@ -1809,15 +1784,15 @@ int main(/*int argc, char** argvA*/void)
 
     if (Unityplayer_baseAddr)
     {
-        if (ReadProcessMemoryInternal(pi->hProcess, (void*)Unityplayer_baseAddr, _mbase_PE_buffer, 0x1000, 0))
+        if (ReadProcessMemoryInternal(pi->hProcess, (void*)Unityplayer_baseAddr, _imgbase_PE_buffer, 0x1000, 0))
         {
-            if (Get_Section_info((uintptr_t)_mbase_PE_buffer, ".text", &Text_Vsize, &Text_Remote_RVA, Unityplayer_baseAddr))
+            if (Get_Section_info((uintptr_t)_imgbase_PE_buffer, ".text", &Text_Vsize, &Text_Remote_RVA, Unityplayer_baseAddr))
                 goto __Get_target_sec;
         }
     }
     
     Show_Error_Msg(L"Get Target Section Fail! (text)");
-    VirtualFree_Internal(_mbase_PE_buffer, 0, MEM_RELEASE);
+    VirtualFree_Internal(_imgbase_PE_buffer, 0, MEM_RELEASE);
     TerminateProcess_Internal(pi->hProcess, 0);
     CloseHandle_Internal(pi->hProcess);
     return 0;
@@ -1891,24 +1866,6 @@ __Get_target_sec:
     //get fps ptr
     if (isGenshin)
     {
-        if (Use_mobile_UI)
-        {
-            //platform_flag_func
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? 48 8B 7D 40 89 87 ?? ?? ?? ?? E8 ?? ?? ?? ?? 4C 8B C0");
-            if (address)
-            {
-                int64_t rip = address;
-                rip += 1;
-                rip += *(int32_t*)(rip)+4 + 1;// +1 jmp va
-                rip += *(int32_t*)(rip)+4;
-                GI_Func.Pfunc_device_type = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-            }
-            else
-            {
-                Use_mobile_UI = 0;
-            }
-        }
-
         //66 0F 6E 0D ?? ?? ?? ?? 0F 57 C0 0F 5B C9
         address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "66 0F 6E 0D ?? ?? ?? ?? 0F 57 C0 0F 5B C9");//5.5
         if (address)
@@ -1997,20 +1954,20 @@ __genshin_il:
     if(1)
     {
         uintptr_t UA_baseAddr = Unityplayer_baseAddr;
-        if (is_old_version)
-        {
-            wstring il2cppPath = *ProcessDir;
-            il2cppPath += L"\\YuanShen_Data\\Native\\UserAssembly.dll";
-            UA_baseAddr = (uintptr_t)RemoteDll_Inject(pi->hProcess, il2cppPath.c_str());
-            if (UA_baseAddr)
-            {
-                if (!ReadProcessMemoryInternal(pi->hProcess, (void*)UA_baseAddr, _mbase_PE_buffer, 0x1000, 0))
-                {
-                    goto __procfail;
-                }
-            }
-        }
-        if (Get_Section_info((uintptr_t)_mbase_PE_buffer, "il2cpp", &Text_Vsize, &Text_Remote_RVA, UA_baseAddr))
+        //if (is_old_version)
+        //{
+        //    wstring il2cppPath = *ProcessDir;
+        //    il2cppPath += L"\\YuanShen_Data\\Native\\UserAssembly.dll";
+        //    UA_baseAddr = (uintptr_t)RemoteDll_Inject(pi->hProcess, il2cppPath.c_str());
+        //    if (UA_baseAddr)
+        //    {
+        //        if (!ReadProcessMemoryInternal(pi->hProcess, (void*)UA_baseAddr, _imgbase_PE_buffer, 0x1000, 0))
+        //        {
+        //            goto __procfail;
+        //        }
+        //    }
+        //}
+        if (Get_Section_info((uintptr_t)_imgbase_PE_buffer, "il2cpp", &Text_Vsize, &Text_Remote_RVA, UA_baseAddr))
         {
             goto __Get_sec_ok;
         }
@@ -2071,18 +2028,40 @@ __genshin_il:
         }
         if (Use_mobile_UI)
         {
-            //setting bug
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? 83 F8 02 75 0B 48 89 F1 48 89 FA E8");
+            //get struct ptr RVA
+            //48 8B 05 ?? ?? ?? ?? 0F 85 ?? ?? ?? ?? 48 8B B8 ?? ?? ?? ?? 48 85 FF 0F 84 ?? ?? ?? ?? 83 BF ?? ?? ?? ?? 03
+            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 8B 05 ?? ?? ?? ?? 48 8B 88 ?? ?? ?? ?? 48 85 C9 0F ?? ?? ?? ?? ?? BA 02 00 00 00 E8 ?? ?? ?? ?? 48 89 F9 BA 03 00 00 00 E8");
             if (address)
             {
                 int64_t rip = address;
-                rip += 0x6;
-                GI_Func.setbug_fix = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                rip += 0x3;
+                rip += *(int32_t*)(rip)+4;
+                GI_Func.Grph_class = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+				rip = address + 0xA;
+				GI_Func.Grph_UIcl_VA = *(int32_t*)(rip);
+                rip = address + 0x1D;
+				rip += *(int32_t*)(rip)+4;
+                GI_Func.Func_gui_set = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+				rip = address + 0x2A;
+				rip += *(int32_t*)(rip)+4;
+                GI_Func.Func_input_set = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
             }
             else
             {
                 Use_mobile_UI = 0;
             }
+            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 8B 05 ?? ?? ?? ?? 0F 85 ?? ?? ?? ?? 48 8B B8 ?? ?? ?? ?? 48 85 FF 0F 84 ?? ?? ?? ?? 83 BF ?? ?? ?? ?? 03");
+            if (address)
+            {
+                int64_t rip = address;
+                rip += 0x10;
+                GI_Func.Grph_inputcl_VA = *(int32_t*)(rip);
+            }
+            else
+            {
+                Use_mobile_UI = 0;
+			}
+
             //Unhook_hook
             //old 48 89 F1 E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 80 B9 ?? ?? ?? ?? 00
             address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D");
@@ -2091,22 +2070,14 @@ __genshin_il:
                 int64_t rip = address;
                 rip += 0x9;
                 rip += *(int32_t*)(rip)+4;
-                GI_Func.Unhook_func = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                GI_Func.UI_unhook_time = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
             }
             else
             {
                 Use_mobile_UI = 0;
             }
-            if (Use_mobile_UI)
-            {
-                injectarg.Bootui = Tar_Device;
-            }
-            else
-            {
-                GI_Func.Pfunc_device_type = 0;
-            }
         }
-        injectarg.PfuncList = &GI_Func;
+		injectarg.PfuncList = &GI_Func;
     }
 
 __Continue:
@@ -2141,7 +2112,7 @@ __Continue:
     DelWstring(&ProcessDir);
     DelWstring(&procname);
 
-    VirtualFree_Internal(_mbase_PE_buffer, 0, MEM_RELEASE);
+    VirtualFree_Internal(_imgbase_PE_buffer, 0, MEM_RELEASE);
     VirtualFree_Internal(Copy_Text_VA, 0, MEM_RELEASE);
     
 	//SetThreadAffinityMask(pi->hThread, 0xF);
