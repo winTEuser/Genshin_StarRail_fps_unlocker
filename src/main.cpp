@@ -45,6 +45,8 @@ bool isHook = 0;
 bool is_old_version = 0;
 bool isAntimiss = 1;
 bool AutoExit = 0;
+bool NoConsoleMode = false;  // 是否启用no-console模式
+bool needShowConsole = true; // 是否需要显示控制台窗口
 HWND _console_HWND = 0;
 BYTE ConfigPriorityClass = 1;
 uint32_t GamePriorityClass = NORMAL_PRIORITY_CLASS;
@@ -667,13 +669,37 @@ static bool WriteConfig(int fps)
     return re;
 }
 
+// 检查配置文件是否存在有效的游戏路径
+static bool CheckConfigExists()
+{
+    INIReader reader(CONFIG_FILENAME);
+    if (reader.ParseError() != 0)
+    {
+        return false; // 配置文件不存在或有错误
+    }
+
+    // 检查是否有有效的游戏路径 - 检查两种游戏类型的路径
+    wstring genPath = reader.Get(L"Setting", L"GenshinPath", L"");
+    wstring hksrPath = reader.Get(L"Setting", L"HKSRPath", L"");
+    
+    // 如果任一游戏路径存在且有效，就认为配置存在
+    bool genValid = !genPath.empty() && GetFileAttributesW(genPath.c_str()) != INVALID_FILE_ATTRIBUTES;
+    bool hksrValid = !hksrPath.empty() && GetFileAttributesW(hksrPath.c_str()) != INVALID_FILE_ATTRIBUTES;
+    
+    return genValid || hksrValid;
+}
+
 
 static bool LoadConfig()
 {
     INIReader reader(CONFIG_FILENAME);
     if (reader.ParseError() != 0)
     {
-        wprintf_s(L"\n Config Not Found !\n 配置文件未发现\n try read reg info\n 尝试读取启动器注册表配置...\n ......");
+        // 只有在需要显示控制台时才输出信息
+        if (needShowConsole)
+        {
+            wprintf_s(L"\n Config Not Found !\n 配置文件未发现\n try read reg info\n 尝试读取启动器注册表配置...\n ......");
+        }
 
     _no_config:
         DWORD length = 0x10000;
@@ -962,24 +988,27 @@ static bool LoadConfig()
         VirtualFree_Internal(szPath, 0, MEM_RELEASE);
 
 
-        //clean screen
+        //clean screen - 只在显示控制台时执行
+        if (needShowConsole)
         {
-            COORD pos = { 0, 8 };
-            HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-            SetConsoleCursorPosition(hOut, pos);
-        }
-        for (int a = 0; a <= 6; a++)
-        {
-            for (int i = 0; i <= 16; i++)
             {
-                printf_s("               ");
+                COORD pos = { 0, 8 };
+                HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+                SetConsoleCursorPosition(hOut, pos);
             }
-            printf_s("\n");
-        }
-        {
-            COORD pos = { 0, 8 };
-            HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-            SetConsoleCursorPosition(hOut, pos);
+            for (int a = 0; a <= 6; a++)
+            {
+                for (int i = 0; i <= 16; i++)
+                {
+                    printf_s("               ");
+                }
+                printf_s("\n");
+            }
+            {
+                COORD pos = { 0, 8 };
+                HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+                SetConsoleCursorPosition(hOut, pos);
+            }
         }
         goto __path_ok;
     }
@@ -991,7 +1020,10 @@ static bool LoadConfig()
         GamePath = GenGamePath;
         if (GetFileAttributesW(GamePath.c_str()) == INVALID_FILE_ATTRIBUTES)
         {
-            wprintf_s(L"\n Genshin Path Error!\n Plase open Genshin to set game path.\n 路径错误，请手动打开原神来设置游戏路径 \n");
+            if (needShowConsole)
+            {
+                wprintf_s(L"\n Genshin Path Error!\n Plase open Genshin to set game path.\n 路径错误，请手动打开原神来设置游戏路径 \n");
+            }
             goto _no_config;
         }
     }
@@ -1000,7 +1032,10 @@ static bool LoadConfig()
         GamePath = HKSRGamePath;
         if (GetFileAttributesW(GamePath.c_str()) == INVALID_FILE_ATTRIBUTES)
         {
-            wprintf_s(L"\n HKSR Path Error!\n Plase open StarRail to set game path.\n 路径错误，请手动打开崩铁来设置游戏路径 \n");
+            if (needShowConsole)
+            {
+                wprintf_s(L"\n HKSR Path Error!\n Plase open StarRail to set game path.\n 路径错误，请手动打开崩铁来设置游戏路径 \n");
+            }
             goto _no_config;
         }   
     }
@@ -1065,72 +1100,97 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
     std::wstring CommandLine{};
     if (argNum >= 2)
     {
-        int _game_argc_start = 2;
-        wchar_t boot_genshin[] = L"-genshin";
-        wchar_t boot_starrail[] = L"-hksr";
-        wchar_t loadLib[] = L"-loadlib";
-        wchar_t Use_Mobile_UI[] = L"-enablemobileui";
+        bool gameTypeSet = false;  // 标记是否已设置游戏类型
         wstring* temparg = NewWstring(0x1000);
-        *temparg = argvW[1];
-        towlower0((wchar_t*)temparg->c_str());
-        if (*temparg == boot_genshin)
+        
+        // 主解析循环：遍历参数，识别选项
+        for (int i = 1; i < argNum; i++)
         {
-            SetConsoleTitleA("This console control GenshinFPS");
-
-            if (argNum > 2)
-            {
-                *temparg = argvW[2];
-                towlower0((wchar_t*)temparg->c_str());
-                if (*temparg == Use_Mobile_UI)
-                {
-                    Use_mobile_UI = 1;
-                    //CommandLine += L"use_mobile_platform -is_cloud 1 -platform_type CLOUD_THIRD_PARTY_MOBILE ";
-                    _game_argc_start = 3;
-                }
-            }
-        }
-        else if (*temparg == boot_starrail)
-        {
-            isGenshin = 0;
-            SetConsoleTitleA("This console control HKStarRailFPS");
-            if (argNum > 2)
-            {
-                *temparg = argvW[2];
-                towlower0((wchar_t*)temparg->c_str());
-                if (*temparg == Use_Mobile_UI)
-                {
-                    Use_mobile_UI = 1;
-                    _game_argc_start = 3;
-                }
-            }
-        }
-        else
-        {
-            Show_Error_Msg(L"参数错误 \nArguments error ( unlocker.exe -[game] -[game argv] ..... ) \n");
-            return 0;
-        }
-        if (argNum > _game_argc_start)
-        {
-            *temparg = argvW[_game_argc_start];
+            *temparg = argvW[i];
             towlower0((wchar_t*)temparg->c_str());
-            if (*temparg == loadLib)
+            
+            if (*temparg == L"-genshin")
             {
-                _game_argc_start++;
-                if (argNum > _game_argc_start)
+                SetConsoleTitleA("This console control GenshinFPS");
+                isGenshin = 1;
+                gameTypeSet = true;
+            }
+            else if (*temparg == L"-hksr")
+            {
+                isGenshin = 0;
+                SetConsoleTitleA("This console control HKStarRailFPS");
+                gameTypeSet = true;
+            }
+            else if (*temparg == L"-enablemobileui")
+            {
+                if (gameTypeSet)  // 仅在游戏类型后有效
                 {
-                    *temparg = argvW[_game_argc_start];
+                    Use_mobile_UI = 1;
+                }
+            }
+            else if (*temparg == L"-loadlib")
+            {
+                if (i + 1 < argNum)  // 边界检查：确保有下一个参数
+                {
+                    i++;  // 跳到路径参数
+                    *temparg = argvW[i];
                     LPVOID LibPath = malloc((temparg->size() * 2) + 0x10);
+                    if (!LibPath)
+                    {
+                        DelWstring(&temparg);
+                        return 0;  // 内存分配失败
+                    }
+                    *(uint64_t*)LibPath = 0;
                     strncpy0((wchar_t*)LibPath, temparg->c_str(), temparg->size() * 2);
                     arg->Path_Lib = (LPWSTR)LibPath;
-                    _game_argc_start++;
+                }
+                else
+                {
+                    // 可选：添加警告，但保持简单
+                    DelWstring(&temparg);
+                    return 0;  // -loadlib 后无路径，失败
                 }
             }
+            else if (*temparg == L"-nc" || *temparg == L"--no-console")
+            {
+                NoConsoleMode = true;
+            }
+            else
+            {
+                // 其它参数
+            }
         }
-        for (int i = _game_argc_start; i < argNum; i++)
+        
+        // 检查是否设置了游戏类型
+        if (!gameTypeSet)
         {
-            CommandLine += argvW[i];
-            CommandLine += L" ";
+            Show_Error_Msg(L"参数错误 \nArguments error ( unlocker.exe -[game] -[options] ..... ) \n");
+            DelWstring(&temparg);
+            return 0;
         }
+        
+        // 拼接 Game_Arg：遍历所有参数，跳过解锁器参数
+        for (int i = 1; i < argNum; i++)
+        {
+            *temparg = argvW[i];
+            towlower0((wchar_t*)temparg->c_str());
+            
+            if (*temparg == L"-genshin" || *temparg == L"-hksr" || *temparg == L"-enablemobileui" || *temparg == L"-nc" || *temparg == L"--no-console")
+            {
+                continue;  // 跳过解锁器参数
+            }
+            else if (*temparg == L"-loadlib")
+            {
+                i++;  // 跳过路径
+                continue;
+            }
+            else
+            {
+                CommandLine += argvW[i];
+                CommandLine += L" ";
+            }
+        }
+        
         DelWstring(&temparg);
     }
     else
@@ -1669,17 +1729,36 @@ int main(/*int argc, char** argvA*/void)
     {
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
+
+    Boot_arg barg{};
+    if (Init_Game_boot_arg(&barg) == 0)
+        return 0;
+
+    // 如果启用了no-console模式，检查配置文件并决定是否隐藏控制台
+    if (NoConsoleMode)
+    {
+        needShowConsole = !CheckConfigExists();
+        
+        // 如果不需要显示控制台，则隐藏它
+        if (!needShowConsole)
+        {
+            HWND hwnd = GetConsoleWindow();
+            if (hwnd != NULL) {
+                ShowWindow(hwnd, SW_HIDE);
+            }
+        }
+    }
     
-    wprintf_s(L"FPS unlocker 2.9.1\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTKver: %u\nNTDLLver: %u\n", (uint32_t)*(uint16_t*)(0x7FFE0260), ParseOSBuildBumber());
+    // 只有在需要显示控制台时才输出版本信息
+    if (needShowConsole)
+    {
+        wprintf_s(L"FPS unlocker 2.9.1\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTKver: %u\nNTDLLver: %u\n", (uint32_t)*(uint16_t*)(0x7FFE0260), ParseOSBuildBumber());
+    }
 
     if (NTSTATUS r = init_API())
     {
         return r;
     }
-
-    Boot_arg barg{};
-    if (Init_Game_boot_arg(&barg) == 0)
-        return 0; 
 
     if (LoadConfig() == 0)
         return 0;
@@ -1691,10 +1770,13 @@ int main(/*int argc, char** argvA*/void)
     *ProcessDir = ProcessPath->substr(0, ProcessPath->find_last_of(L"\\"));
     *procname = ProcessPath->substr(ProcessPath->find_last_of(L"\\") + 1);
 
-    wprintf_s(L"\nGamePath: %s \n\n", GamePath.c_str());
-    if(isGenshin == 0)
+    if (needShowConsole)
     {
-        wprintf_s(L"When V-sync is opened, you need open setting then quit to apply change in StarRail.\n当垂直同步开启时解锁帧率需要进设置界面再退出才可应用\n");
+        wprintf_s(L"\nGamePath: %s \n\n", GamePath.c_str());
+        if(isGenshin == 0)
+        {
+            wprintf_s(L"When V-sync is opened, you need open setting then quit to apply change in StarRail.\n当垂直同步开启时解锁帧率需要进设置界面再退出才可应用\n");
+        }
     }
 
     {
@@ -2081,7 +2163,10 @@ __genshin_il:
     }
 
 __Continue:
-    wprintf_s(L"Inject...\n");
+    if (needShowConsole)
+    {
+        wprintf_s(L"Inject...\n");
+    }
     uintptr_t Patch_buffer = inject_patch(pi->hProcess, Unityplayer_baseAddr, pfps, &injectarg);
     if (!Patch_buffer)
     {
@@ -2103,8 +2188,11 @@ __Continue:
         {
             mod = RemoteDll_Inject(pi->hProcess, barg.Path_Lib);
         }
-        wstring str_addr = To_Hexwstring_64bit((uint64_t)mod);
-        wprintf_s(L"Plugin BaseAddr : 0x%s", str_addr.c_str());
+        if (needShowConsole)
+        {
+            wstring str_addr = To_Hexwstring_64bit((uint64_t)mod);
+            wprintf_s(L"Plugin BaseAddr : 0x%s", str_addr.c_str());
+        }
         free(barg.Path_Lib);
     }
     
@@ -2122,9 +2210,12 @@ __Continue:
     
     SetPriorityClass((HANDLE) -1, NORMAL_PRIORITY_CLASS);
 
-    wprintf_s(L"PID: %d\n \nDone! \n \n", pi->dwProcessId);
+    if (needShowConsole)
+    {
+        wprintf_s(L"PID: %d\n \nDone! \n \n", pi->dwProcessId);
+    }
 
-    if(!AutoExit)
+    if(!AutoExit && needShowConsole)
     {
         wprintf_s(L"Use ↑ ↓ ← → key to change fps limted\n使用键盘上的方向键调节帧率限制\n\n\n  UpKey : +20\n  DownKey : -20\n  LeftKey : -2\n  RightKey : +2\n\n");
 
@@ -2186,8 +2277,19 @@ __Continue:
     }
     else
     {
-        wprintf_s(L"Exit......");
-        NtSleep(2000);
+        if (needShowConsole)
+        {
+            wprintf_s(L"Exit......");
+            NtSleep(2000);
+        }
+        else
+        {
+            // 静默模式：监控游戏进程直到结束
+            while (GetExitCodeProcess_Internal(pi->hProcess) == STILL_ACTIVE)
+            {
+                NtSleep(1000);
+            }
+        }
     }
     CloseHandle_Internal(pi->hProcess);
     free(boot_info);

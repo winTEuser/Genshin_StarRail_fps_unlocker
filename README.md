@@ -32,13 +32,14 @@
 - **Right Ctrl + Left Key**       (-2)
 
 ## Command Line
- - unlocker.exe -[game] -[game argv...]
+ - unlocker.exe -[game] -[unlocker options before game options] -[game argv...]
  - eg. unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
- - eg. unlocker.exe -HKSR -???
- - If you want start with mobile UI add the arg "**-EnableMobileUI**" **must be in the second**
- - unlocker.exe -[game] -EnableMobileUI -.......
- - DLL inject 
- - unlocker.exe -[game] -LoadLib [path]
+ - eg. unlocker.exe -HKSR -...
+ - Unlocker options include:
+   - `-EnableMobileUI`: Adds the parameter "**-EnableMobileUI**" to the launched game to conveniently enable mobile UI, e.g., `unlocker.exe -Genshin -EnableMobileUI`
+   - `-loadlib [absolute path]`: DLL injection, ensure the source is reliable before use, e.g., `unlocker.exe -[game] -loadlib [absolute path]`
+   - `-nc` or `--no-console`: No console mode (hides console window if config exists), e.g., `unlocker.exe -[game] -nc` or `unlocker.exe -[game] --no-console`
+ - Comprehensive example: `unlocker.exe -Genshin -EnableMobileUI -loadlib C:\\Folder\\plug.dll -nc -[game parameters...]`
 
 ## Inject
  - Now must be unlocked by inject 
