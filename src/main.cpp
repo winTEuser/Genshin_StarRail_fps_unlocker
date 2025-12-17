@@ -121,8 +121,20 @@ typedef struct {
 
 __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress, size_t regionSize, const char* signature, PatternScanInfo* results)
 {
-    if (!signature || !startAddress || !regionSize || !results || !results->buffer || results->maxCount == 0)
+    if (!signature || !startAddress || !regionSize || !results || !results->buffer || !results->maxCount)
         return 0;
+
+    const size_t kStackThreshold = 512;
+    const size_t kSimdWidth = sizeof(__m128i); // SSE基本宽度
+
+    struct PatternData {
+        uint8_t* bytes = nullptr;
+        uint32_t* masks = nullptr;
+        bool* patternWildcard = nullptr;
+        size_t length = 0;
+        size_t blockCount = 0;
+        bool stackAllocated = false;
+    } pattern;
 
     size_t patternLen = 0;
     const char* p = signature;
@@ -130,267 +142,365 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
     while (*p)
     {
         if (*p == ' ') { p++; continue; }
-        if (*p == '?')
-        {
+        if (*p == '?') {
             patternLen++;
             p++;
             if (*p == '?') p++;
         }
-        else
-        {
+        else {
             patternLen++;
             p += 2;
         }
     }
 
     if (patternLen == 0) return 0;
+    pattern.length = patternLen;
 
-    // 内存分配优化
-    const size_t kStackThreshold = 128;
+    // 计算需要的块数
+    pattern.blockCount = (patternLen + kSimdWidth - 1) / kSimdWidth;
 
-    int stackPattern[kStackThreshold];
-    int* patternBytes = 0;
-    if (patternLen <= kStackThreshold)
-        patternBytes = stackPattern;
+    // 分配内存
+    const size_t totalSize = pattern.blockCount * kSimdWidth;
+    const size_t maskCount = pattern.blockCount;
+
+    if (totalSize <= kStackThreshold)
+    {
+        static constexpr size_t kMaxStackSize = kStackThreshold;
+        uint8_t stackBytes[kMaxStackSize];
+        uint32_t stackMasks[kMaxStackSize / kSimdWidth];
+        bool stackPatternWildcard[kMaxStackSize];
+
+        pattern.bytes = stackBytes;
+        pattern.masks = stackMasks;
+        pattern.patternWildcard = stackPatternWildcard;
+        pattern.stackAllocated = true;
+    }
     else
     {
-        patternBytes = (int*)malloc(patternLen * sizeof(int));
-        if (!patternBytes) return 0;
+        pattern.bytes = (uint8_t*)malloc(totalSize);
+        pattern.masks = (uint32_t*)malloc(maskCount * sizeof(uint32_t));
+        pattern.patternWildcard = (bool*)malloc(patternLen * sizeof(bool));
+        if (!pattern.bytes || !pattern.masks || !pattern.patternWildcard)
+        {
+            if (pattern.bytes) free(pattern.bytes);
+            if (pattern.masks) free(pattern.masks);
+            if (pattern.patternWildcard) free(pattern.patternWildcard);
+            return 0;
+        }
+        pattern.stackAllocated = false;
     }
 
-    // 解析特征码
-    size_t parseIndex = 0;
-    p = signature;
+    memset(pattern.bytes, 0, totalSize);
+    memset(pattern.masks, 0, maskCount * sizeof(uint32_t));
+    memset(pattern.patternWildcard, 0, patternLen * sizeof(bool));
 
-    while (*p && parseIndex < patternLen)
+    // 解析到字节和掩码数组
+    p = signature;
+    size_t index = 0;
+
+    while (*p && index < patternLen)
     {
         while (*p == ' ') p++;
         if (!*p) break;
+
         if (*p == '?')
         {
-            patternBytes[parseIndex++] = -1;
+            // 通配符
             p++;
             if (*p == '?') p++;
+            pattern.patternWildcard[index] = true;
         }
         else
         {
-            const uint8_t char1 = g_HexLookup[(uint8_t)*p++];
+            // 有效字节
+            uint8_t char1 = g_HexLookup[(uint8_t)*p++];
             while (*p == ' ') p++; if (!*p) break;
-            const uint8_t char2 = g_HexLookup[(uint8_t)*p++];
+            uint8_t char2 = g_HexLookup[(uint8_t)*p++];
+
             if (char1 > 0x0F || char2 > 0x0F)
             {
-                if (patternLen > kStackThreshold) free(patternBytes);
+                if (!pattern.stackAllocated)
+                {
+                    free(pattern.bytes);
+                    free(pattern.masks);
+                    free(pattern.patternWildcard);
+                }
                 return 0;
             }
-            patternBytes[parseIndex++] = (char1 << 4) | char2;
+
+            uint8_t byteValue = (char1 << 4) | char2;
+            size_t blockIdx = index / kSimdWidth;
+            size_t bitPos = index % kSimdWidth;
+
+            pattern.bytes[blockIdx * kSimdWidth + bitPos] = byteValue;
+            pattern.masks[blockIdx] |= (1 << bitPos);
         }
+        index++;
     }
 
-    if (parseIndex != patternLen)
+    if (index != patternLen)
     {
-        if (patternLen > kStackThreshold) free(patternBytes);
+        if (!pattern.stackAllocated)
+        {
+            free(pattern.bytes);
+            free(pattern.masks);
+            free(pattern.patternWildcard);
+        }
         return 0;
     }
-
     uint8_t* scanBytes = (uint8_t*)startAddress;
-    const size_t scanEnd = regionSize - patternLen;
-    int firstByte = -1;
-    size_t firstIndex = 0;
+    size_t scanEnd = regionSize - patternLen;
+    size_t scannedBytes = 0;
+    uintptr_t* resultBuffer = results->buffer;
+    const size_t maxCount = results->maxCount - 1;
+    size_t foundCount = 0;
 
-    // 查找第一个非通配符字节
-    for (; firstIndex < patternLen; firstIndex++)
+    // 找到第一个非通配符字节用于快速跳过
+    int firstNonWildcardByte = -1;
+    size_t firstNonWildcardIdx = 0;
+
+    for (; firstNonWildcardIdx < patternLen; firstNonWildcardIdx++)
     {
-        if (patternBytes[firstIndex] != -1)
+        size_t blockIdx = firstNonWildcardIdx / kSimdWidth;
+        size_t bitPos = firstNonWildcardIdx % kSimdWidth;
+
+        if (pattern.masks[blockIdx] & (1 << bitPos))
         {
-            firstByte = patternBytes[firstIndex];
+            firstNonWildcardByte = pattern.bytes[blockIdx * kSimdWidth + bitPos];
             break;
         }
     }
-
-    // 全是通配符
-    if (firstByte == -1)
+    if (firstNonWildcardByte == -1)
     {
-        if (patternLen > kStackThreshold) free(patternBytes);
+        if (!pattern.stackAllocated)
+        {
+            free(pattern.bytes);
+            free(pattern.masks);
+            free(pattern.patternWildcard);
+        }
         return startAddress;
     }
 
-    uintptr_t* result_buffer = results->buffer;
-    size_t Maxnum = results->maxCount - 1;
-    size_t Count = 0;
-
     if (g_cpuFeatures & AVX512_Support)
     {
-        __m512i firstByteVec = _mm512_set1_epi8((char)firstByte);
-        for (size_t i = 0; i <= scanEnd; i += sizeof(__m512i))
+        constexpr size_t avx512Width = sizeof(__m512i);
+        const size_t avx512Blocks = avx512Width / kSimdWidth;
+        __m512i firstByteVec = _mm512_set1_epi8((char)firstNonWildcardByte);
+        scanEnd -= avx512Width;
+        for (; scannedBytes <= scanEnd; scannedBytes += avx512Width)
         {
-            if (i > regionSize)
-            {
-                scanBytes = scanBytes + i;
-                regionSize = regionSize - i;
-                break;
-            }
-            __m512i block = _mm512_loadu_si512((const __m512i*)(scanBytes + i));
-            __mmask64 mask = _mm512_cmpeq_epi8_mask(block, firstByteVec);
+            __m512i dataBlock = _mm512_loadu_si512((const __m512i*)(scanBytes + scannedBytes));
+            __mmask64 cmpMask = _mm512_cmpeq_epi8_mask(dataBlock, firstByteVec);
 
-            while (mask != 0)
+            while (cmpMask != 0)
             {
                 DWORD bit;
-                _BitScanForward64(&bit, mask);
-                mask &= mask - 1;
-                size_t pos = i + bit;
-                __nop();
+                _BitScanForward64(&bit, cmpMask);
+                cmpMask &= cmpMask - 1;
+
+                size_t pos = scannedBytes + bit;
                 if (pos > scanEnd) continue;
-                int match = 1;
-                for (size_t j = firstIndex + 1; j < patternLen; j++)
+                if (!pattern.patternWildcard[patternLen - 1])
                 {
-                    if (patternBytes[j] == -1) continue;
-                    if (scanBytes[pos + j] != (uint8_t)patternBytes[j])
+                    if (scanBytes[pos + patternLen - 1] != pattern.bytes[patternLen - 1])
                     {
-                        match = 0;
+                        continue;
+                    }
+                }
+
+                bool matched = true;
+                for (size_t blockIdx = 0; blockIdx < pattern.blockCount; blockIdx++)
+                {
+                    size_t byteOffset = blockIdx * kSimdWidth;
+                    if (pos + byteOffset + kSimdWidth > regionSize)
+                    {
+                        matched = false;
+                        break;
+                    }
+
+                    __m128i dataChunk = _mm_loadu_si128((const __m128i*)(scanBytes + pos + byteOffset));
+                    __m128i patternChunk = _mm_loadu_si128((const __m128i*)(pattern.bytes + byteOffset));
+                    __m128i cmp = _mm_cmpeq_epi8(dataChunk, patternChunk);
+                    int maskResult = _mm_movemask_epi8(cmp);
+
+                    if ((maskResult & pattern.masks[blockIdx]) != pattern.masks[blockIdx]) {
+                        matched = false;
                         break;
                     }
                 }
 
-                if (match)
+                if (matched)
                 {
-                    uintptr_t foundAddr = (uintptr_t)(scanBytes + pos);
-                    result_buffer[Count++] = foundAddr;
-                    if (Count > Maxnum)
-                    {
-                        goto __Exit_scan_0;
+                    resultBuffer[foundCount++] = (uintptr_t)(scanBytes + pos);
+                    if (foundCount > maxCount) {
+                        goto cleanup;
                     }
                 }
             }
         }
-    __Exit_scan_0:
         _mm256_zeroupper();
     }
     else if (g_cpuFeatures & AVX2_Support)
     {
-        __m256i firstByteVec = _mm256_set1_epi8((char)firstByte);
-        for (size_t i = 0; i <= scanEnd; i += sizeof(__m256i))
+        constexpr size_t avx2Width = sizeof(__m256i);
+        size_t avx2Blocks = avx2Width / kSimdWidth;
+        _mm_prefetch((const char*)(scanBytes), _MM_HINT_T0);
+        __m256i firstByteVec = _mm256_set1_epi8((char)firstNonWildcardByte);
+        scanEnd -= avx2Width;
+        for (; scannedBytes <= scanEnd; scannedBytes += avx2Width)
         {
-            if (i > regionSize)
-            {
-                scanBytes = scanBytes + i;
-                regionSize = regionSize - i;
-                break;
-            }
-            __m256i block = _mm256_loadu_si256((const __m256i*)(scanBytes + i));
-            __m256i cmp = _mm256_cmpeq_epi8(block, firstByteVec);
-            DWORD mask = (DWORD)_mm256_movemask_epi8(cmp);
-            __nop();
+            __m256i dataBlock = _mm256_loadu_si256((const __m256i*)(scanBytes + scannedBytes));
+            __m256i cmp = _mm256_cmpeq_epi8(dataBlock, firstByteVec);
+            uint32_t mask = (uint32_t)_mm256_movemask_epi8(cmp);
+
             while (mask != 0)
             {
                 DWORD bit;
                 _BitScanForward(&bit, mask);
                 mask &= mask - 1;
-                size_t pos = i + bit;
 
+                size_t pos = scannedBytes + bit;
                 if (pos > scanEnd) continue;
-                int match = 1;
-                for (size_t j = firstIndex + 1; j < patternLen; j++)
+                if (!pattern.patternWildcard[patternLen - 1])
                 {
-                    if (patternBytes[j] == -1) continue;
-                    if (scanBytes[pos + j] != (uint8_t)patternBytes[j])
+                    if (scanBytes[pos + patternLen - 1] != pattern.bytes[patternLen - 1])
                     {
-                        match = 0;
+                        continue;
+                    }
+                }
+
+                bool matched = true;
+                for (size_t blockIdx = 0; blockIdx < pattern.blockCount; blockIdx++)
+                {
+                    size_t byteOffset = blockIdx * kSimdWidth;
+                    if (pos + byteOffset + kSimdWidth > regionSize)
+                    {
+                        matched = false;
+                        break;
+                    }
+
+                    __m128i dataChunk = _mm_loadu_si128((const __m128i*)(scanBytes + pos + byteOffset));
+                    __m128i patternChunk = _mm_loadu_si128((const __m128i*)(pattern.bytes + byteOffset));
+                    __m128i cmp = _mm_cmpeq_epi8(dataChunk, patternChunk);
+                    int maskResult = _mm_movemask_epi8(cmp);
+
+                    if ((maskResult & pattern.masks[blockIdx]) != pattern.masks[blockIdx])
+                    {
+                        matched = false;
                         break;
                     }
                 }
 
-                if (match)
-                {
-                    uintptr_t foundAddr = (uintptr_t)(scanBytes + pos);
-                    result_buffer[Count++] = foundAddr;
-                    if (Count > Maxnum)
-                    {
-                        goto __Exit_scan_1;
+                if (matched) {
+                    resultBuffer[foundCount++] = (uintptr_t)(scanBytes + pos);
+                    if (foundCount > maxCount) {
+                        goto cleanup;
                     }
                 }
             }
         }
-    __Exit_scan_1:
         _mm256_zeroupper();
     }
     else
     {
-        __m128i firstByteVec = _mm_set1_epi8((char)firstByte);
-        for (size_t i = 0; i <= scanEnd; i += sizeof(__m128i))
+        __m128i firstByteVec = _mm_set1_epi8((char)firstNonWildcardByte);
+        scanEnd -= kSimdWidth;
+        for (; scannedBytes <= scanEnd; scannedBytes += kSimdWidth)
         {
-            if (i > regionSize)
-            {
-                scanBytes = scanBytes + i;
-                regionSize = regionSize - i;
-                break;
-            }
-            __m128i block = _mm_loadu_si128((const __m128i*)(scanBytes + i));
-            __m128i cmp = _mm_cmpeq_epi8(block, firstByteVec);
-            DWORD mask = (DWORD)_mm_movemask_epi8(cmp);
+            __m128i dataBlock = _mm_loadu_si128((const __m128i*)(scanBytes + scannedBytes));
+            __m128i cmp = _mm_cmpeq_epi8(dataBlock, firstByteVec);
+            uint32_t mask = (uint32_t)_mm_movemask_epi8(cmp);
 
-            while (mask != 0)
-            {
+            while (mask != 0) {
                 DWORD bit;
                 _BitScanForward(&bit, mask);
                 mask &= mask - 1;
-                size_t pos = i + bit;
-                __nop();
+
+                size_t pos = scannedBytes + bit;
                 if (pos > scanEnd) continue;
-                int match = 1;
-                for (size_t j = firstIndex + 1; j < patternLen; j++)
+
+				// fastvirify: check most likely non-matching positions
+                if (!pattern.patternWildcard[patternLen - 1])
                 {
-                    if (patternBytes[j] == -1) continue;
-                    if (scanBytes[pos + j] != (uint8_t)patternBytes[j])
+                    if (scanBytes[pos + patternLen - 1] != pattern.bytes[patternLen - 1])
                     {
-                        match = 0;
+                        continue;
+                    }
+                }
+                bool matched = true;
+                for (size_t blockIdx = 0; blockIdx < pattern.blockCount; blockIdx++)
+                {
+                    size_t byteOffset = blockIdx * kSimdWidth;
+                    if (pos + byteOffset + kSimdWidth > regionSize)
+                    {
+                        matched = false;
+                        break;
+                    }
+
+                    __m128i dataChunk = _mm_loadu_si128((const __m128i*)(scanBytes + pos + byteOffset));
+                    __m128i patternChunk = _mm_loadu_si128((const __m128i*)(pattern.bytes + byteOffset));
+                    __m128i cmp = _mm_cmpeq_epi8(dataChunk, patternChunk);
+                    int maskResult = _mm_movemask_epi8(cmp);
+
+                    if ((maskResult & pattern.masks[blockIdx]) != pattern.masks[blockIdx])
+                    {
+                        matched = false;
                         break;
                     }
                 }
 
-                if (match)
+                if (matched)
                 {
-                    uintptr_t foundAddr = (uintptr_t)(scanBytes + pos);
-                    result_buffer[Count++] = foundAddr;
-                    if (Count > Maxnum)
-                    {
-                        goto __Exit_scan_2;
+                    resultBuffer[foundCount++] = (uintptr_t)(scanBytes + pos);
+                    if (foundCount > maxCount) {
+                        goto cleanup;
                     }
                 }
             }
         }
     }
-__Exit_scan_2:
-    if ((patternLen > regionSize) || (Count > Maxnum))
+
+    if ((patternLen < (regionSize - scannedBytes)) && (foundCount < maxCount))
     {
-        if (patternLen > kStackThreshold) free(patternBytes);
-        results->count = Count;
-        return result_buffer[0];
-    }
-    for (size_t i = 0; i < regionSize - patternLen; ++i)
-    {
-        bool found = true;
-        for (size_t j = 0; j < patternLen; ++j)
+        scanBytes += scannedBytes;
+        regionSize -= scannedBytes;
+        for (size_t i = 0; i < regionSize - patternLen; ++i)
         {
-            if (patternBytes[j] != -1 && scanBytes[i + j] != patternBytes[j])
+            bool matched = true;
+
+            for (size_t j = 0; j < patternLen; ++j)
             {
-                found = false;
-                break;
+                size_t blockIdx = j / kSimdWidth;
+                size_t bitPos = j % kSimdWidth;
+
+                if ((pattern.masks[blockIdx] & (1 << bitPos)) && scanBytes[i + j] != pattern.bytes[blockIdx * kSimdWidth + bitPos])
+                {
+                    matched = false;
+                    break;
+                }
+            }
+
+            if (matched)
+            {
+                resultBuffer[foundCount++] = (uintptr_t)(scanBytes + i);
+                if (foundCount > maxCount)
+                {
+                    break;
+                }
             }
         }
-        if (found)
-        {
-            result_buffer[Count++] = (uintptr_t)&scanBytes[i];
-            // 检查是否达到最大容量
-            if (Count > Maxnum)
-            {
-                goto __Exit_scan_3;
-            }
-        }
     }
-__Exit_scan_3:
-    results->count = Count;
-    if (patternLen > kStackThreshold) free(patternBytes);
-    return result_buffer[0];
+
+cleanup:
+    if (!pattern.stackAllocated)
+    {
+        free(pattern.bytes);
+        free(pattern.masks);
+        free(pattern.patternWildcard);
+    }
+
+    results->count = foundCount;
+    return foundCount > 0 ? resultBuffer[0] : 0;
 }
 
 
@@ -1037,8 +1147,7 @@ __path_ok:
             break;
     }
     int32_t FpsValue_t = reader.GetInteger(L"Setting", L"FPS", FPS_TARGET);
-    if (FpsValue_t > 1000)
-        FpsValue_t = 1000;
+    if (FpsValue_t > 1000) FpsValue_t = 1000;
     FpsValue = FpsValue_t;
     WriteConfig(FpsValue);
     
@@ -1306,7 +1415,6 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t
                     Show_Error_Msg(L"Failed write payload 0(GIui)");
             }
             else Show_Error_Msg(L"Failed ReadFunc 0 (GIui)");
-
         }
     }
 __exit_block:
@@ -1552,7 +1660,6 @@ __failure_safe_exit:
     return result;
 }
 
-
 //Get the address of the ptr in the target process
 static uint64_t Hksr_ENmobile_get_Ptr(HANDLE Tar_handle, LPCWSTR GPath)
 {
@@ -1670,7 +1777,7 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
     
-    wprintf_s(L"FPS unlocker 2.9.1\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTKver: %u\nNTDLLver: %u\n", (uint32_t)*(uint16_t*)(0x7FFE0260), ParseOSBuildBumber());
+    wprintf_s(L"FPS unlocker 2.9.2\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTKver: %u\nNTDLLver: %u\n", (uint32_t)*(uint16_t*)(0x7FFE0260), ParseOSBuildBumber());
 
     if (NTSTATUS r = init_API())
     {
@@ -1808,7 +1915,7 @@ __Get_target_sec:
         CloseHandle_Internal(pi->hProcess);
         return 0;
     }
-    // 把整个模块读出来
+	// Read .text section to localmemory
     if (ReadProcessMemoryInternal(pi->hProcess, (void*)Text_Remote_RVA, Copy_Text_VA, Text_Vsize, 0) == 0)
     {
         Show_Error_Msg(L"Readmem Fail ! (text)");
@@ -1820,6 +1927,30 @@ __Get_target_sec:
 
     uintptr_t pfps = 0;
     uintptr_t address = 0;
+    if (isGenshin)
+    {
+		address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "0F 10 05 ?? ?? ?? ?? 0F 11 41 ?? 0F 10 05 ?? ?? ?? ?? 0F 11 41 ?? 0F 10 05 ?? ?? ?? ?? 0F 11 41 ?? 0F 10 05 ?? ?? ?? ?? 0F 11 01");
+        if (address)
+        {
+            int64_t rip = address;
+            rip += 0x24;
+            rip += *(int32_t*)(rip)+4;
+            rip = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+			uint8_t* strbuffer = (uint8_t*)malloc(0x50);
+            if (strbuffer)
+            {
+                if (ReadProcessMemoryInternal(pi->hProcess, (void*)rip, strbuffer, 0x50, 0))
+                {
+					printf_s("Genshin ver sign: %s\n", strbuffer);
+                }
+                free(strbuffer);
+			}
+        }
+        else
+        {
+            wprintf_s(L"Unknown game ver\n");
+		}
+    }
     //Get UnityWndclass addr
     if (1)
     {
@@ -1954,19 +2085,19 @@ __genshin_il:
     if(1)
     {
         uintptr_t UA_baseAddr = Unityplayer_baseAddr;
-        //if (is_old_version)
-        //{
-        //    wstring il2cppPath = *ProcessDir;
-        //    il2cppPath += L"\\YuanShen_Data\\Native\\UserAssembly.dll";
-        //    UA_baseAddr = (uintptr_t)RemoteDll_Inject(pi->hProcess, il2cppPath.c_str());
-        //    if (UA_baseAddr)
-        //    {
-        //        if (!ReadProcessMemoryInternal(pi->hProcess, (void*)UA_baseAddr, _imgbase_PE_buffer, 0x1000, 0))
-        //        {
-        //            goto __procfail;
-        //        }
-        //    }
-        //}
+        if (is_old_version)
+        {
+            wstring il2cppPath = *ProcessDir;
+            il2cppPath += L"\\YuanShen_Data\\Native\\UserAssembly.dll";
+            UA_baseAddr = (uintptr_t)RemoteDll_Inject(pi->hProcess, il2cppPath.c_str());
+            if (UA_baseAddr)
+            {
+                if (!ReadProcessMemoryInternal(pi->hProcess, (void*)UA_baseAddr, _imgbase_PE_buffer, 0x1000, 0))
+                {
+                    goto __procfail;
+                }
+            }
+        }
         if (Get_Section_info((uintptr_t)_imgbase_PE_buffer, "il2cpp", &Text_Vsize, &Text_Remote_RVA, UA_baseAddr))
         {
             goto __Get_sec_ok;
@@ -2028,8 +2159,6 @@ __genshin_il:
         }
         if (Use_mobile_UI)
         {
-            //get struct ptr RVA
-            //48 8B 05 ?? ?? ?? ?? 0F 85 ?? ?? ?? ?? 48 8B B8 ?? ?? ?? ?? 48 85 FF 0F 84 ?? ?? ?? ?? 83 BF ?? ?? ?? ?? 03
             address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 8B 05 ?? ?? ?? ?? 48 8B 88 ?? ?? ?? ?? 48 85 C9 0F ?? ?? ?? ?? ?? BA 02 00 00 00 E8 ?? ?? ?? ?? 48 89 F9 BA 03 00 00 00 E8");
             if (address)
             {
