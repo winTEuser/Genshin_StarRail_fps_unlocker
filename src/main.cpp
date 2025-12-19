@@ -119,6 +119,7 @@ typedef struct {
     size_t count;          // 实际找到的匹配数量
 } PatternScanInfo;
 
+
 __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress, size_t regionSize, const char* signature, PatternScanInfo* results)
 {
     if (!signature || !startAddress || !regionSize || !results || !results->buffer || !results->maxCount)
@@ -159,12 +160,12 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
     // 计算需要的块数
     pattern.blockCount = (patternLen + kSimdWidth - 1) / kSimdWidth;
 
-    // 分配内存
     const size_t totalSize = pattern.blockCount * kSimdWidth;
     const size_t maskCount = pattern.blockCount;
 
     if (totalSize <= kStackThreshold)
     {
+        // 栈上分配
         static constexpr size_t kMaxStackSize = kStackThreshold;
         uint8_t stackBytes[kMaxStackSize];
         uint32_t stackMasks[kMaxStackSize / kSimdWidth];
@@ -177,6 +178,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
     }
     else
     {
+        // 堆上分配
         pattern.bytes = (uint8_t*)malloc(totalSize);
         pattern.masks = (uint32_t*)malloc(maskCount * sizeof(uint32_t));
         pattern.patternWildcard = (bool*)malloc(patternLen * sizeof(bool));
@@ -194,7 +196,6 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
     memset(pattern.masks, 0, maskCount * sizeof(uint32_t));
     memset(pattern.patternWildcard, 0, patternLen * sizeof(bool));
 
-    // 解析到字节和掩码数组
     p = signature;
     size_t index = 0;
 
@@ -248,6 +249,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
         }
         return 0;
     }
+
     uint8_t* scanBytes = (uint8_t*)startAddress;
     size_t scanEnd = regionSize - patternLen;
     size_t scannedBytes = 0;
@@ -270,6 +272,8 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
             break;
         }
     }
+
+    // 如果全是通配符
     if (firstNonWildcardByte == -1)
     {
         if (!pattern.stackAllocated)
@@ -283,6 +287,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
 
     if (g_cpuFeatures & AVX512_Support)
     {
+        // AVX512实现：一次处理64字节
         constexpr size_t avx512Width = sizeof(__m512i);
         const size_t avx512Blocks = avx512Width / kSimdWidth;
         __m512i firstByteVec = _mm512_set1_epi8((char)firstNonWildcardByte);
@@ -307,7 +312,6 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
                         continue;
                     }
                 }
-
                 bool matched = true;
                 for (size_t blockIdx = 0; blockIdx < pattern.blockCount; blockIdx++)
                 {
@@ -332,16 +336,19 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
                 if (matched)
                 {
                     resultBuffer[foundCount++] = (uintptr_t)(scanBytes + pos);
-                    if (foundCount > maxCount) {
-                        goto cleanup;
+                    if (foundCount > maxCount)
+                    {
+                        goto _m512_cleanup;
                     }
                 }
             }
         }
+    _m512_cleanup:
         _mm256_zeroupper();
     }
     else if (g_cpuFeatures & AVX2_Support)
     {
+        // AVX2实现：一次处理32字节
         constexpr size_t avx2Width = sizeof(__m256i);
         size_t avx2Blocks = avx2Width / kSimdWidth;
         _mm_prefetch((const char*)(scanBytes), _MM_HINT_T0);
@@ -358,7 +365,6 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
                 DWORD bit;
                 _BitScanForward(&bit, mask);
                 mask &= mask - 1;
-
                 size_t pos = scannedBytes + bit;
                 if (pos > scanEnd) continue;
                 if (!pattern.patternWildcard[patternLen - 1])
@@ -393,16 +399,19 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
 
                 if (matched) {
                     resultBuffer[foundCount++] = (uintptr_t)(scanBytes + pos);
-                    if (foundCount > maxCount) {
-                        goto cleanup;
+                    if (foundCount > maxCount)
+                    {
+                        goto _m256_cleanup;
                     }
                 }
             }
         }
+    _m256_cleanup:
         _mm256_zeroupper();
     }
     else
     {
+        // SSE实现：一次处理16字节
         __m128i firstByteVec = _mm_set1_epi8((char)firstNonWildcardByte);
         scanEnd -= kSimdWidth;
         for (; scannedBytes <= scanEnd; scannedBytes += kSimdWidth)
@@ -419,7 +428,6 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
                 size_t pos = scannedBytes + bit;
                 if (pos > scanEnd) continue;
 
-				// fastvirify: check most likely non-matching positions
                 if (!pattern.patternWildcard[patternLen - 1])
                 {
                     if (scanBytes[pos + patternLen - 1] != pattern.bytes[patternLen - 1])
@@ -427,6 +435,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
                         continue;
                     }
                 }
+
                 bool matched = true;
                 for (size_t blockIdx = 0; blockIdx < pattern.blockCount; blockIdx++)
                 {
@@ -452,7 +461,8 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
                 if (matched)
                 {
                     resultBuffer[foundCount++] = (uintptr_t)(scanBytes + pos);
-                    if (foundCount > maxCount) {
+                    if (foundCount > maxCount)
+                    {
                         goto cleanup;
                     }
                 }
@@ -492,6 +502,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
     }
 
 cleanup:
+    // 清理内存
     if (!pattern.stackAllocated)
     {
         free(pattern.bytes);
