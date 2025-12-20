@@ -125,8 +125,8 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
     if (!signature || !startAddress || !regionSize || !results || !results->buffer || !results->maxCount)
         return 0;
 
-    const size_t kStackThreshold = 512;
-    const size_t kSimdWidth = sizeof(__m128i); // SSE基本宽度
+    const size_t kStackThreshold = 1024;
+    const size_t kSimdWidth = sizeof(__m256i);
 
     struct PatternData {
         uint8_t* bytes = nullptr;
@@ -251,7 +251,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
     }
 
     uint8_t* scanBytes = (uint8_t*)startAddress;
-    size_t scanEnd = regionSize - patternLen;
+    size_t scanEnd = regionSize - (patternLen + sizeof(__m512i));
     size_t scannedBytes = 0;
     uintptr_t* resultBuffer = results->buffer;
     const size_t maxCount = results->maxCount - 1;
@@ -273,7 +273,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
         }
     }
 
-    // 如果全是通配符
+    // 全是通配符
     if (firstNonWildcardByte == -1)
     {
         if (!pattern.stackAllocated)
@@ -285,144 +285,184 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
         return startAddress;
     }
 
+    _mm_prefetch((const char*)(scanBytes), _MM_HINT_T0);
     if (g_cpuFeatures & AVX512_Support)
     {
-        // AVX512实现：一次处理64字节
         constexpr size_t avx512Width = sizeof(__m512i);
-        const size_t avx512Blocks = avx512Width / kSimdWidth;
         __m512i firstByteVec = _mm512_set1_epi8((char)firstNonWildcardByte);
-        scanEnd -= avx512Width;
-        for (; scannedBytes <= scanEnd; scannedBytes += avx512Width)
+        scanEnd -= (avx512Width * 2);
+        for (; scannedBytes <= scanEnd; scannedBytes += (avx512Width * 2))
         {
-            __m512i dataBlock = _mm512_loadu_si512((const __m512i*)(scanBytes + scannedBytes));
-            __mmask64 cmpMask = _mm512_cmpeq_epi8_mask(dataBlock, firstByteVec);
-
-            while (cmpMask != 0)
+            __m512i dataBlock0 = _mm512_loadu_si512((const __m512i*)(scanBytes + scannedBytes));
+            __m512i dataBlock1 = _mm512_loadu_si512((const __m512i*)(scanBytes + scannedBytes + avx512Width));
+            __mmask64 cmpMask0 = _mm512_cmpeq_epi8_mask(dataBlock0, firstByteVec);
+            __mmask64 cmpMask1 = _mm512_cmpeq_epi8_mask(dataBlock1, firstByteVec);
+            __mmask64 tempMask = cmpMask0;
+            do
             {
-                DWORD bit;
-                _BitScanForward64(&bit, cmpMask);
-                cmpMask &= cmpMask - 1;
-
-                size_t pos = scannedBytes + bit;
-                if (pos > scanEnd) continue;
-                if (!pattern.patternWildcard[patternLen - 1])
+                __nop();
+                while (tempMask != 0)
                 {
-                    if (scanBytes[pos + patternLen - 1] != pattern.bytes[patternLen - 1])
+                    DWORD bit;
+                    _BitScanForward64(&bit, tempMask);
+                    tempMask &= tempMask - 1;
+                    size_t pos = scannedBytes + bit;
+                    if (pos > scanEnd) continue;
+                    if (!pattern.patternWildcard[patternLen - 1])
                     {
-                        continue;
+                        if (scanBytes[pos + patternLen - 1] != pattern.bytes[patternLen - 1])
+                        {
+                            continue;
+                        }
+                    }
+                    bool matched = true;
+                    for (size_t blockIdx = 0; blockIdx < pattern.blockCount; blockIdx++)
+                    {
+                        size_t byteOffset = blockIdx * kSimdWidth;
+                        if (pos + byteOffset + kSimdWidth > regionSize)
+                        {
+                            matched = false;
+                            break;
+                        }
+
+                        __m256i dataChunk = _mm256_loadu_si256((const __m256i*)(scanBytes + pos + byteOffset));
+                        __m256i patternChunk = _mm256_loadu_si256((const __m256i*)(pattern.bytes + byteOffset));
+                        __m256i cmp = _mm256_cmpeq_epi8(dataChunk, patternChunk);
+                        int maskResult = _mm256_movemask_epi8(cmp);
+
+                        if ((maskResult & pattern.masks[blockIdx]) != pattern.masks[blockIdx])
+                        {
+                            matched = false;
+                            break;
+                        }
+                    }
+
+                    if (matched)
+                    {
+                        resultBuffer[foundCount++] = (uintptr_t)(scanBytes + pos);
+                        if (foundCount > maxCount)
+                        {
+                            goto _m512_cleanup;
+                        }
                     }
                 }
-                bool matched = true;
-                for (size_t blockIdx = 0; blockIdx < pattern.blockCount; blockIdx++)
+                if (cmpMask1 != 0)
                 {
-                    size_t byteOffset = blockIdx * kSimdWidth;
-                    if (pos + byteOffset + kSimdWidth > regionSize)
-                    {
-                        matched = false;
-                        break;
-                    }
-
-                    __m128i dataChunk = _mm_loadu_si128((const __m128i*)(scanBytes + pos + byteOffset));
-                    __m128i patternChunk = _mm_loadu_si128((const __m128i*)(pattern.bytes + byteOffset));
-                    __m128i cmp = _mm_cmpeq_epi8(dataChunk, patternChunk);
-                    int maskResult = _mm_movemask_epi8(cmp);
-
-                    if ((maskResult & pattern.masks[blockIdx]) != pattern.masks[blockIdx]) {
-                        matched = false;
-                        break;
-                    }
+                    tempMask = cmpMask1;
+                    cmpMask1 = 0;
+                    scannedBytes += avx512Width;
                 }
-
-                if (matched)
+                else
                 {
-                    resultBuffer[foundCount++] = (uintptr_t)(scanBytes + pos);
-                    if (foundCount > maxCount)
-                    {
-                        goto _m512_cleanup;
-                    }
+                    break;
                 }
-            }
+            } while (1);
         }
     _m512_cleanup:
         _mm256_zeroupper();
     }
     else if (g_cpuFeatures & AVX2_Support)
     {
-        // AVX2实现：一次处理32字节
-        constexpr size_t avx2Width = sizeof(__m256i);
-        size_t avx2Blocks = avx2Width / kSimdWidth;
-        _mm_prefetch((const char*)(scanBytes), _MM_HINT_T0);
         __m256i firstByteVec = _mm256_set1_epi8((char)firstNonWildcardByte);
-        scanEnd -= avx2Width;
-        for (; scannedBytes <= scanEnd; scannedBytes += avx2Width)
+        scanEnd -= (kSimdWidth * 2);
+        for (; scannedBytes <= scanEnd; scannedBytes += (kSimdWidth * 4))
         {
-            __m256i dataBlock = _mm256_loadu_si256((const __m256i*)(scanBytes + scannedBytes));
-            __m256i cmp = _mm256_cmpeq_epi8(dataBlock, firstByteVec);
-            uint32_t mask = (uint32_t)_mm256_movemask_epi8(cmp);
-
-            while (mask != 0)
+            __m256i dataBlock0 = _mm256_loadu_si256((const __m256i*)(scanBytes + scannedBytes));
+            __m256i dataBlock1 = _mm256_loadu_si256((const __m256i*)(scanBytes + scannedBytes + 32));
+            __m256i dataBlock2 = _mm256_loadu_si256((const __m256i*)(scanBytes + scannedBytes + 64));
+            __m256i dataBlock3 = _mm256_loadu_si256((const __m256i*)(scanBytes + scannedBytes + 96));
+            __m256i cmp = _mm256_cmpeq_epi8(dataBlock0, firstByteVec);
+            __m256i cmp1 = _mm256_cmpeq_epi8(dataBlock1, firstByteVec);
+            __m256i cmp2 = _mm256_cmpeq_epi8(dataBlock2, firstByteVec);
+            __m256i cmp3 = _mm256_cmpeq_epi8(dataBlock3, firstByteVec);
+            uint64_t mask0 = (uint64_t)(_mm256_movemask_epi8(cmp) | (((uint64_t)_mm256_movemask_epi8(cmp1)) << 32));
+            uint64_t mask1 = (uint64_t)(_mm256_movemask_epi8(cmp2) | (((uint64_t)_mm256_movemask_epi8(cmp3)) << 32));
+            uint64_t tempmask = mask0;
+            do
             {
-                DWORD bit;
-                _BitScanForward(&bit, mask);
-                mask &= mask - 1;
-                size_t pos = scannedBytes + bit;
-                if (pos > scanEnd) continue;
-                if (!pattern.patternWildcard[patternLen - 1])
+                __nop();
+                while (tempmask != 0)
                 {
-                    if (scanBytes[pos + patternLen - 1] != pattern.bytes[patternLen - 1])
+                    DWORD bit;
+                    _BitScanForward64(&bit, tempmask);
+                    tempmask &= tempmask - 1;
+                    size_t pos = scannedBytes + bit;
+                    if (pos > scanEnd) continue;
+                    if (!pattern.patternWildcard[patternLen - 1])
                     {
-                        continue;
+                        if (scanBytes[pos + patternLen - 1] != pattern.bytes[patternLen - 1])
+                        {
+                            continue;
+                        }
+                    }
+
+                    bool matched = true;
+                    for (size_t blockIdx = 0; blockIdx < pattern.blockCount; blockIdx++)
+                    {
+                        size_t byteOffset = blockIdx * kSimdWidth;
+                        if (pos + byteOffset + kSimdWidth > regionSize)
+                        {
+                            matched = false;
+                            break;
+                        }
+
+                        __m256i dataChunk = _mm256_loadu_si256((const __m256i*)(scanBytes + pos + byteOffset));
+                        __m256i patternChunk = _mm256_loadu_si256((const __m256i*)(pattern.bytes + byteOffset));
+                        __m256i cmp = _mm256_cmpeq_epi8(dataChunk, patternChunk);
+                        int maskResult = _mm256_movemask_epi8(cmp);
+
+                        if ((maskResult & pattern.masks[blockIdx]) != pattern.masks[blockIdx])
+                        {
+                            matched = false;
+                            break;
+                        }
+                    }
+
+                    if (matched)
+                    {
+                        resultBuffer[foundCount++] = (uintptr_t)(scanBytes + pos);
+                        if (foundCount > maxCount)
+                        {
+                            goto _m256_cleanup;
+                        }
                     }
                 }
-
-                bool matched = true;
-                for (size_t blockIdx = 0; blockIdx < pattern.blockCount; blockIdx++)
+                if (mask1 != 0)
                 {
-                    size_t byteOffset = blockIdx * kSimdWidth;
-                    if (pos + byteOffset + kSimdWidth > regionSize)
-                    {
-                        matched = false;
-                        break;
-                    }
-
-                    __m128i dataChunk = _mm_loadu_si128((const __m128i*)(scanBytes + pos + byteOffset));
-                    __m128i patternChunk = _mm_loadu_si128((const __m128i*)(pattern.bytes + byteOffset));
-                    __m128i cmp = _mm_cmpeq_epi8(dataChunk, patternChunk);
-                    int maskResult = _mm_movemask_epi8(cmp);
-
-                    if ((maskResult & pattern.masks[blockIdx]) != pattern.masks[blockIdx])
-                    {
-                        matched = false;
-                        break;
-                    }
+                    tempmask = mask1;
+                    mask1 = 0;
+                    scannedBytes += (kSimdWidth * 2);
                 }
-
-                if (matched) {
-                    resultBuffer[foundCount++] = (uintptr_t)(scanBytes + pos);
-                    if (foundCount > maxCount)
-                    {
-                        goto _m256_cleanup;
-                    }
+                else
+                {
+                    break;
                 }
-            }
+            } while (1);
         }
     _m256_cleanup:
         _mm256_zeroupper();
     }
     else
     {
-        // SSE实现：一次处理16字节
         __m128i firstByteVec = _mm_set1_epi8((char)firstNonWildcardByte);
-        scanEnd -= kSimdWidth;
-        for (; scannedBytes <= scanEnd; scannedBytes += kSimdWidth)
+        scanEnd -= (kSimdWidth * 2);
+        for (; scannedBytes <= scanEnd; scannedBytes += (kSimdWidth * 2))
         {
-            __m128i dataBlock = _mm_loadu_si128((const __m128i*)(scanBytes + scannedBytes));
-            __m128i cmp = _mm_cmpeq_epi8(dataBlock, firstByteVec);
-            uint32_t mask = (uint32_t)_mm_movemask_epi8(cmp);
+            __m128i dataBlock0 = _mm_loadu_si128((const __m128i*)(scanBytes + scannedBytes));
+            __m128i dataBlock1 = _mm_loadu_si128((const __m128i*)(scanBytes + scannedBytes + 16));
+            __m128i dataBlock2 = _mm_loadu_si128((const __m128i*)(scanBytes + scannedBytes + 32));
+            __m128i dataBlock3 = _mm_loadu_si128((const __m128i*)(scanBytes + scannedBytes + 48));
+            __m128i cmp0 = _mm_cmpeq_epi8(dataBlock0, firstByteVec);
+            __m128i cmp1 = _mm_cmpeq_epi8(dataBlock1, firstByteVec);
+            __m128i cmp2 = _mm_cmpeq_epi8(dataBlock2, firstByteVec);
+            __m128i cmp3 = _mm_cmpeq_epi8(dataBlock3, firstByteVec);
 
-            while (mask != 0) {
+            uint64_t mask = (uint64_t)(_mm_movemask_epi8(cmp0) | (_mm_movemask_epi8(cmp1) << 16) | (((uint64_t)_mm_movemask_epi8(cmp2)) << 32) | (((uint64_t)_mm_movemask_epi8(cmp3)) << 48));
+
+            while (mask != 0)
+            {
                 DWORD bit;
-                _BitScanForward(&bit, mask);
+                _BitScanForward64(&bit, mask);
                 mask &= mask - 1;
 
                 size_t pos = scannedBytes + bit;
@@ -446,10 +486,13 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
                         break;
                     }
 
-                    __m128i dataChunk = _mm_loadu_si128((const __m128i*)(scanBytes + pos + byteOffset));
-                    __m128i patternChunk = _mm_loadu_si128((const __m128i*)(pattern.bytes + byteOffset));
-                    __m128i cmp = _mm_cmpeq_epi8(dataChunk, patternChunk);
-                    int maskResult = _mm_movemask_epi8(cmp);
+                    __m128i dataChunk0 = _mm_loadu_si128((const __m128i*)(scanBytes + pos + byteOffset));
+                    __m128i dataChunk1 = _mm_loadu_si128((const __m128i*)(scanBytes + pos + byteOffset + 16));
+                    __m128i patternChunk0 = _mm_loadu_si128((const __m128i*)(pattern.bytes + byteOffset));
+                    __m128i patternChunk1 = _mm_loadu_si128((const __m128i*)(pattern.bytes + byteOffset + 16));
+                    __m128i cmp0 = _mm_cmpeq_epi8(dataChunk0, patternChunk0);
+                    __m128i cmp1 = _mm_cmpeq_epi8(dataChunk1, patternChunk1);
+                    int maskResult = _mm_movemask_epi8(cmp0) | (_mm_movemask_epi8(cmp1) << 16);
 
                     if ((maskResult & pattern.masks[blockIdx]) != pattern.masks[blockIdx])
                     {
@@ -502,7 +545,6 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
     }
 
 cleanup:
-    // 清理内存
     if (!pattern.stackAllocated)
     {
         free(pattern.bytes);
