@@ -11,7 +11,7 @@
  - Supports OS and CN version
  - Should work for future updates
  - If the source needs to be updated, I'll try to do it as soon as possible
- - You can download the compiled binary over at [Release](https://github.com/winTEuser/genshin-StarRail-fps-unlock/releases) if you don't want to compile it yourself
+ - You can download the compiled binary over at [Release](https://github.com/winTEuser/Genshin_StarRail_fps_unlocker/releases) if you don't want to compile it yourself
 
  ## Compiling
  - Use Visual Studio 2022 Community Edition or Vscode with MSVC
