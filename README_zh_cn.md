@@ -10,7 +10,7 @@
  - 支持国服和外服
  - 理论上支持后续版本，不需要更新源码
  - 如果需要更新我会尽快更新
- - 如果不想手动编译的话去[Release](https://github.com/winTEuser/genshin-StarRail-fps-unlock/releases)下载编译好的
+ - 如果不想手动编译的话去[Release](https://github.com/winTEuser/Genshin_StarRail_fps_unlocker/releases)下载编译好的
 # -----------------------------------------------------------------
 ## 自定义参数启动
  - 给unlockfps.exe创建一个快捷方式, 改个图标, 在快捷方式的属性处加上需要的参数例如-popupwindow，支持多参数
