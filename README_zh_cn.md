@@ -26,10 +26,14 @@
 >使用管理员运行是因为游戏必须由解锁器启动，游戏本身就需要管理员权限了，所以负责启动的也是需要的
 
 ## 快速启动命令行
- - unlocker.exe -[游戏] -[给解锁器的参数在游戏参数前] -[游戏参数...]
- - 例 unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
+ - unlocker.exe -[游戏] -[解锁器参数] -[游戏参数...]
+ - 例 unlocker.exe -Genshin -fps 120 -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
  - 例 unlocker.exe -HKSR -...
- - 在启动的游戏后面添加参数"**-EnableMobileUI**"来便捷启用移动端ui,该参数必须是**第二个**，否则无法被识别
+ - 解锁器自己的参数（如 `-EnableMobileUI`、`-loadlib`）现在可以出现在 `-[游戏]` 后的任意位置，解锁器会自动识别并消费
+ - 除了解锁器参数以外的其他参数会按原顺序自动透传给游戏进程
+ - 启动参数设置目标帧率：添加参数 `-fps` [数值]（支持小数，会自动四舍五入到整数）
+ - 例 unlocker.exe -Genshin -fps 59.6
+ - 便捷启用移动端 UI：添加参数"**-EnableMobileUI**"
  - unlocker.exe -Genshin -EnableMobileUI
  - DLL注入，使用前确保来源可靠性
  - unlocker.exe -[游戏] -loadlib [绝对路径]
