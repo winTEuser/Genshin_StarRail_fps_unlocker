@@ -35,7 +35,11 @@
  - unlocker.exe -[game] -[game argv...]
  - eg. unlocker.exe -Genshin -screen-width 3840 -screen-height 1620 -screen-fullscreen 1
  - eg. unlocker.exe -HKSR -???
- - If you want start with mobile UI add the arg "**-EnableMobileUI**" **must be in the second**
+ - Unlocker args can appear anywhere after `-[game]` and will be consumed by the unlocker.
+ - All other args are passed through to the game process in the original order.
+ - Set FPS target: "**-fps**" [value] (decimals allowed; rounded to int)
+ - eg. unlocker.exe -Genshin -fps 120
+ - If you want start with mobile UI add the arg "**-EnableMobileUI**"
  - unlocker.exe -[game] -EnableMobileUI -.......
  - DLL inject 
  - unlocker.exe -[game] -LoadLib [path]

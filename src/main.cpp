@@ -14,8 +14,11 @@
 
 
 #include <iostream>
-#include <vector>
 #include <string>
+#include <cmath>
+#include <cerrno>
+#include <cwchar>
+#include <cwctype>
 
 #include <Windows.h>
 #include <TlHelp32.h>
@@ -48,6 +51,8 @@ bool AutoExit = 0;
 HWND _console_HWND = 0;
 BYTE ConfigPriorityClass = 1;
 uint32_t GamePriorityClass = NORMAL_PRIORITY_CLASS;
+static bool g_hasFpsOverride = false;
+static uint32_t g_fpsOverride = 0;
 
 
 typedef struct hooked_func_struct
@@ -1208,8 +1213,12 @@ __path_ok:
             break;
     }
     int32_t FpsValue_t = reader.GetInteger(L"Setting", L"FPS", FPS_TARGET);
+    if (FpsValue_t < 10) FpsValue_t = 10;
     if (FpsValue_t > 1000) FpsValue_t = 1000;
-    FpsValue = FpsValue_t;
+    uint32_t finalFps = (uint32_t)FpsValue_t;
+    if (g_hasFpsOverride)
+        finalFps = g_fpsOverride;
+    FpsValue = finalFps;
     WriteConfig(FpsValue);
     
     return 1;
@@ -1221,6 +1230,119 @@ struct Boot_arg
     LPWSTR Game_Arg;
     LPWSTR Path_Lib;
 };
+
+static bool EqualsIgnoreCase(LPCWSTR a, LPCWSTR b)
+{
+    if (!a || !b)
+        return false;
+    while (*a && *b)
+    {
+        if (towlower(*a) != towlower(*b))
+            return false;
+        ++a;
+        ++b;
+    }
+    return (*a == L'\0' && *b == L'\0');
+}
+
+static bool TryParseFpsOverride(const std::wstring& raw, uint32_t* outFps)
+{
+    if (!outFps)
+        return false;
+
+    const wchar_t* start = raw.c_str();
+    while (*start && iswspace(*start))
+        ++start;
+    if (*start == L'\0')
+        return false;
+
+    const wchar_t* parseStr = start;
+    std::wstring normalized;
+    if (wcschr(start, L',') != nullptr)
+    {
+        normalized = start;
+        for (auto& ch : normalized)
+        {
+            if (ch == L',')
+                ch = L'.';
+        }
+        parseStr = normalized.c_str();
+    }
+
+    wchar_t* end = nullptr;
+    errno = 0;
+    const double value = wcstod(parseStr, &end);
+    if (end == parseStr || errno == ERANGE)
+        return false;
+
+    while (*end && iswspace(*end))
+        ++end;
+    if (*end != L'\0')
+        return false;
+
+    if (!std::isfinite(value) || value <= 0)
+        return false;
+
+    long long rounded = (long long)std::llround(value);
+    if (rounded < 10)
+        rounded = 10;
+    if (rounded > 1000)
+        rounded = 1000;
+
+    *outFps = (uint32_t)rounded;
+    return true;
+}
+
+// Quote a single argument for Windows CreateProcess-style command line.
+// This follows the MS C runtime parsing rules (backslashes before quotes are doubled).
+static std::wstring QuoteWinArg(const std::wstring& arg)
+{
+    if (arg.empty())
+        return L"\"\"";
+
+    const bool needQuotes = (arg.find_first_of(L" \t\n\v\"") != std::wstring::npos);
+    if (!needQuotes)
+        return arg;
+
+    std::wstring out;
+    out.reserve(arg.size() + 2);
+    out.push_back(L'\"');
+
+    size_t backslashCount = 0;
+    for (wchar_t ch : arg)
+    {
+        if (ch == L'\\')
+        {
+            backslashCount++;
+            continue;
+        }
+
+        if (ch == L'\"')
+        {
+            // Escape all backslashes before a quote, then escape the quote.
+            out.append(backslashCount * 2 + 1, L'\\');
+            out.push_back(L'\"');
+            backslashCount = 0;
+            continue;
+        }
+
+        // Normal character: flush pending backslashes.
+        if (backslashCount)
+        {
+            out.append(backslashCount, L'\\');
+            backslashCount = 0;
+        }
+        out.push_back(ch);
+    }
+
+    // Escape trailing backslashes before the closing quote.
+    if (backslashCount)
+        out.append(backslashCount * 2, L'\\');
+
+    out.push_back(L'\"');
+    return out;
+}
+
 //[out] CommandLinew
 //The first 16 bytes are used by other arg
 static bool Init_Game_boot_arg(Boot_arg* arg)
@@ -1229,86 +1351,99 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
     {
         return 0;
     }
+    arg->Path_Lib = nullptr;
     int argNum = 0;
     LPWSTR* argvW = CommandLineToArgvW(GetCommandLineW(), &argNum);
     //win32arg maxsize 8191
     std::wstring CommandLine{};
-    if (argNum >= 2)
+    bool ok = false;
+    if (argvW && argNum >= 2)
     {
-        int _game_argc_start = 2;
-        wchar_t boot_genshin[] = L"-genshin";
-        wchar_t boot_starrail[] = L"-hksr";
-        wchar_t loadLib[] = L"-loadlib";
-        wchar_t Use_Mobile_UI[] = L"-enablemobileui";
-        wstring* temparg = NewWstring(0x1000);
-        *temparg = argvW[1];
-        towlower0((wchar_t*)temparg->c_str());
-        if (*temparg == boot_genshin)
+        const wchar_t* boot_genshin = L"-genshin";
+        const wchar_t* boot_starrail = L"-hksr";
+        const wchar_t* loadLib = L"-loadlib";
+        const wchar_t* Use_Mobile_UI = L"-enablemobileui";
+        const wchar_t* Set_Fps = L"-fps";
+
+        if (EqualsIgnoreCase(argvW[1], boot_genshin))
         {
             SetConsoleTitleA("This console control GenshinFPS");
-
-            if (argNum > 2)
-            {
-                *temparg = argvW[2];
-                towlower0((wchar_t*)temparg->c_str());
-                if (*temparg == Use_Mobile_UI)
-                {
-                    Use_mobile_UI = 1;
-                    //CommandLine += L"use_mobile_platform -is_cloud 1 -platform_type CLOUD_THIRD_PARTY_MOBILE ";
-                    _game_argc_start = 3;
-                }
-            }
         }
-        else if (*temparg == boot_starrail)
+        else if (EqualsIgnoreCase(argvW[1], boot_starrail))
         {
             isGenshin = 0;
             SetConsoleTitleA("This console control HKStarRailFPS");
-            if (argNum > 2)
-            {
-                *temparg = argvW[2];
-                towlower0((wchar_t*)temparg->c_str());
-                if (*temparg == Use_Mobile_UI)
-                {
-                    Use_mobile_UI = 1;
-                    _game_argc_start = 3;
-                }
-            }
         }
         else
         {
             Show_Error_Msg(L"参数错误 \nArguments error ( unlocker.exe -[game] -[game argv] ..... ) \n");
-            return 0;
+            goto cleanup;
         }
-        if (argNum > _game_argc_start)
+
+        // Parse unlocker-owned args anywhere after the game selector.
+        // All other args are passed through in the original order.
+        for (int i = 2; i < argNum; i++)
         {
-            *temparg = argvW[_game_argc_start];
-            towlower0((wchar_t*)temparg->c_str());
-            if (*temparg == loadLib)
+            if (EqualsIgnoreCase(argvW[i], Set_Fps))
             {
-                _game_argc_start++;
-                if (argNum > _game_argc_start)
+                if (i + 1 >= argNum)
                 {
-                    *temparg = argvW[_game_argc_start];
-                    LPVOID LibPath = malloc((temparg->size() * 2) + 0x10);
-                    strncpy0((wchar_t*)LibPath, temparg->c_str(), temparg->size() * 2);
-                    arg->Path_Lib = (LPWSTR)LibPath;
-                    _game_argc_start++;
+                    Show_Error_Msg(L"-fps 参数缺少数值 \nMissing value after -fps\n");
+                    goto cleanup;
                 }
+
+                uint32_t parsedFps = 0;
+                if (!TryParseFpsOverride(argvW[i + 1], &parsedFps))
+                {
+                    Show_Error_Msg(L"-fps 参数错误 \nInvalid -fps value (examples: -fps 120, -fps 59.6)\n");
+                    goto cleanup;
+                }
+
+                g_hasFpsOverride = true;
+                g_fpsOverride = parsedFps;
+                i++; // consume value
+                continue;
             }
-        }
-        for (int i = _game_argc_start; i < argNum; i++)
-        {
-            CommandLine += argvW[i];
+
+            if (EqualsIgnoreCase(argvW[i], Use_Mobile_UI))
+            {
+                Use_mobile_UI = 1;
+                continue;
+            }
+
+            if (EqualsIgnoreCase(argvW[i], loadLib))
+            {
+                if (i + 1 >= argNum)
+                {
+                    Show_Error_Msg(L"-loadlib 参数缺少路径 \nMissing path after -loadlib\n");
+                    goto cleanup;
+                }
+
+                const std::wstring libPath = argvW[i + 1];
+                LPVOID LibPathMem = malloc((libPath.size() * 2) + 0x10);
+                if (!LibPathMem)
+                {
+                    Show_Error_Msg(L"Malloc failed! (-loadlib) ");
+                    goto cleanup;
+                }
+                strncpy0((wchar_t*)LibPathMem, libPath.c_str(), libPath.size() * 2);
+                arg->Path_Lib = (LPWSTR)LibPathMem;
+
+                i++; // consume path
+                continue;
+            }
+
+            CommandLine += QuoteWinArg(argvW[i]);
             CommandLine += L" ";
         }
-        DelWstring(&temparg);
+        ok = true;
     }
     else
     {
         DWORD gtype = MessageBoxW_Internal(L"Genshin click yes ,StarRail click no ,Cancel to Quit \n启动原神选是，崩铁选否，取消退出 \n", L"GameSelect ", 0x23);
         if (gtype == 3)
         {
-            return 0;
+            goto cleanup;
         }
         if (gtype == 8)
         {
@@ -1320,13 +1455,21 @@ static bool Init_Game_boot_arg(Boot_arg* arg)
             SetConsoleTitleA("This console control HKStarRailFPS");
         }
         //?
+        ok = true;
     }
     arg->Game_Arg = (LPWSTR)malloc(0x2000);
     if (!arg->Game_Arg)
-        return 0;
+    {
+        ok = false;
+        goto cleanup;
+    }
     *(uint64_t*)arg->Game_Arg = 0;
     strncpy0((wchar_t*)((BYTE*)arg->Game_Arg), CommandLine.c_str(), CommandLine.size() * 2);
-    return 1;
+
+cleanup:
+    if (argvW)
+        LocalFree(argvW);
+    return ok ? 1 : 0;
 }
 
 typedef struct Hook_func_list
