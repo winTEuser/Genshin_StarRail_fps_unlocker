@@ -36,6 +36,7 @@ uint32_t Tar_Device = DEFAULT_DEVICE;
 uint32_t Target_set_60 = 1000;
 uint32_t Target_set_30 = 60;
 uint32_t PowerSave_target = 10;
+float Custom_DPI_Scale = 0;
 bool isGenshin = 1;
 bool Use_mobile_UI = 0;
 bool _main_state = 1;
@@ -789,7 +790,7 @@ static bool WriteConfig(int fps)
         Show_Error_Msg(L"CreateFile failed! (config)");
         return false;
     }
-    wstring content{0};
+    wstring content{ 0 };
     LPVOID buffer = VirtualAlloc_Internal(0, 0x10000, PAGE_READWRITE);
     if (!buffer)
         return false;
@@ -815,6 +816,9 @@ static bool WriteConfig(int fps)
         content += L"GenShinTarget30=" + std::to_wstring(Target_set_30) + L"\n";
     }
     {
+        content += L"CustomDPIScale=" + std::to_wstring(Custom_DPI_Scale) + L"\n";
+    }
+    {
         content += L"PowerSaveTarget=" + std::to_wstring(PowerSave_target) + L"\n";
     }
     {
@@ -834,7 +838,7 @@ static bool WriteConfig(int fps)
     bool re = WriteFile(hFile, buffer, content.size() * 2, &written, 0);
     VirtualFree_Internal(buffer, 0, MEM_RELEASE);
     CloseHandle_Internal(hFile);
-	memset(&content, 0, sizeof(wstring));
+    memset(&content, 0, sizeof(wstring));
     return re;
 }
 
@@ -1180,7 +1184,8 @@ __path_ok:
     isAntimiss = reader.GetBoolean(L"Setting", L"IsAntiMisscontact", isAntimiss);
     Target_set_30 = reader.GetInteger(L"Setting", L"GenShinTarget30", Target_set_30);
     Target_set_60 = reader.GetInteger(L"Setting", L"GenShinTarget60", Target_set_60);
-	PowerSave_target = reader.GetInteger(L"Setting", L"PowerSaveTarget", PowerSave_target);
+    Custom_DPI_Scale = reader.GetFloat(L"Setting", L"CustomDPIScale", Custom_DPI_Scale);
+    PowerSave_target = reader.GetInteger(L"Setting", L"PowerSaveTarget", PowerSave_target);
     ErrorMsg_EN = reader.GetBoolean(L"Setting", L"EnableErrorMsg", ErrorMsg_EN);
     AutoExit = reader.GetBoolean(L"Setting", L"AutoExit", AutoExit);
     isHook = reader.GetBoolean(L"Setting", L"IsHookGameSet", isHook);
@@ -1337,6 +1342,8 @@ typedef struct Hook_func_list
     uint64_t Grph_class;
     uint32_t Grph_UIcl_VA;
 	uint32_t Grph_inputcl_VA;
+    //---------sfl---------//
+    uint64_t Func_getDPI;
 }Hook_func_list, *PHook_func_list;
 
 typedef struct inject_arg
@@ -1468,7 +1475,7 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t
         {
             *(uint64_t*)(_sc_buffer + 0x40) = GI_Func->UI_unhook_time;
             *(uint64_t*)(_sc_buffer + 0x48) = (uint64_t)Remote_payload_buffer + 0x3000;
-			memcpy(_sc_buffer + 0x3000, &GI_Func->Func_gui_set, sizeof(Hook_func_list) - sizeof(uint64_t));
+			memcpy(_sc_buffer + 0x3000, &GI_Func->Func_gui_set, 0x20);
             if (ReadProcessMemoryInternal(Tar_handle, (void*)GI_Func->UI_unhook_time, (_sc_buffer + 0x50), 0x10, 0))
             {
                 uint64_t hookpart[2] = { 0x225FF,  ((uint64_t)Remote_payload_buffer + GI_UnHooked_UI_fVA) };
@@ -1476,6 +1483,28 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t
                     Show_Error_Msg(L"Failed write payload 0(GIui)");
             }
             else Show_Error_Msg(L"Failed ReadFunc 0 (GIui)");
+        }
+        if (GI_Func->Func_getDPI)
+        {
+            Phooked_func_struct PgetDPI = (Phooked_func_struct)hook_info_ptr;
+            uint8_t patch_code[] =
+            {
+                0xB8, 0x60, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x6E, 0xC0, 0x0F, 0x5B, 0xC0, 0xC3, 0xCC, 0xCC, 0xCC
+            };
+            uint32_t dpiscale_n = Custom_DPI_Scale * 96;
+            *(uint32_t*)(patch_code + 0x1) = dpiscale_n;
+            PgetDPI->hookedpart = *(__m128i*)patch_code;
+            PgetDPI->func_addr = GI_Func->Func_getDPI;
+            if (!ReadProcessMemoryInternal(Tar_handle, (void*)PgetDPI->func_addr, (void*)&PgetDPI->orgpart, 0x10, 0))
+            {
+                Show_Error_Msg(L"Failed ReadFunc 1 (GI_custom_dpi)");
+            }
+            if (!WriteProcessMemoryInternal(Tar_handle, (void*)PgetDPI->func_addr, (void*)&PgetDPI->hookedpart, 0x10, 0))
+            {
+                Show_Error_Msg(L"Failed WriteFunc 1 (GI_custom_dpi)");
+            }
+
+            hook_info_ptr = (uint64_t)hook_info_ptr + sizeof(hooked_func_struct);
         }
     }
 __exit_block:
@@ -2251,6 +2280,22 @@ __genshin_il:
             {
                 Use_mobile_UI = 0;
 			}
+
+            if (Custom_DPI_Scale)
+            {
+                address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "0F 14 F8 E8 ?? ?? ?? ?? 0F 14 F0 0F 59 F7");
+                if (address)
+                {
+                    int64_t rip = (int64_t)address;
+                    rip += 0x4;
+                    rip += *(int32_t*)(rip)+4;
+                    GI_Func.Func_getDPI = rip - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA;
+                }
+                else
+                {
+                    Show_Error_Msg(L"Get DPI_Scale Fail !");
+                }
+            }
 
             //Unhook_hook
             //old 48 89 F1 E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 80 B9 ?? ?? ?? ?? 00
