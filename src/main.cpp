@@ -453,9 +453,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
     {
         __m128i firstByteVec = _mm_set1_epi8((char)firstNonWildcardByte);
         scanEnd -= (kSimdWidth * 2);
-        __nop();
-        __nop();
-        __nop();
+
         for (; scannedBytes <= scanEnd; scannedBytes += (kSimdWidth * 2))
         {
             __m128i dataBlock0 = _mm_loadu_si128((const __m128i*)(scanBytes + scannedBytes));
@@ -865,17 +863,27 @@ static bool LoadConfig()
         //Software\\Cognosphere\HYP\\1_0\\hkrpg_global
         //Software\\miHoYo\HYP\1_2\\hk4e_cn
         //Software\\miHoYo\HYP\1_2\\hkrpg_cn
-		const wchar_t* CNserver = L"Software\\miHoYo\\HYP\\1_2";
-		const wchar_t* Globalserver = L"Software\\Cognosphere\\HYP\\1_0";
-        if (!RegOpenKeyW(HKEY_CURRENT_USER, CNserver, &htempKey))
+		wchar_t CNserver[64] = L"Software\\miHoYo\\HYP\\1_?";
+		wchar_t Globalserver[64] = L"Software\\Cognosphere\\HYP\\1_?";
+		for (int i = 0; i < 10; ++i)
         {
-            ver_region |= 0x1;
-			RegCloseKey(htempKey);
+            CNserver[22] = L'0' + i;
+            if (!RegOpenKeyW(HKEY_CURRENT_USER, CNserver, &htempKey))
+            {
+                ver_region |= 0x1;
+                RegCloseKey(htempKey);
+				break;
+            }
         }
-        if (!RegOpenKeyW(HKEY_CURRENT_USER, Globalserver, &htempKey))
+        for(int i = 0; i < 10; ++i)
         {
-            ver_region |= 0x2;
-            RegCloseKey(htempKey);
+            Globalserver[27] = L'0' + i;
+            if (!RegOpenKeyW(HKEY_CURRENT_USER, Globalserver, &htempKey))
+            {
+                ver_region |= 0x2;
+                RegCloseKey(htempKey);
+				break;
+            }
         }
         if(ver_region)
         {
@@ -1072,6 +1080,11 @@ static bool LoadConfig()
             {
                 GamePath = HKSRGamePath;
             }
+            if (GamePath.size() <= 7)
+            {
+                wprintf_s(L"\n Game Path Error!\n Plase open game to set game path.\n 路径错误，请手动打开游戏来设置游戏路径 \n");
+				goto _reg_getpath_fail;
+            }
 			goto _getpath_done;
         }
 
@@ -1145,9 +1158,9 @@ static bool LoadConfig()
         }
         for (int a = 0; a <= 6; a++)
         {
-            for (int i = 0; i <= 16; i++)
+            for (int i = 0; i <= 8; i++)
             {
-                printf_s("               ");
+                printf_s("                              ");
             }
             printf_s("\n");
         }
@@ -1213,7 +1226,7 @@ __path_ok:
             break;
     }
     int32_t FpsValue_t = reader.GetInteger(L"Setting", L"FPS", FPS_TARGET);
-    if (FpsValue_t > 1000) FpsValue_t = 1000;
+    if (FpsValue_t >= 1000) FpsValue_t = 1000;
     FpsValue = FpsValue_t;
     WriteConfig(FpsValue);
     
@@ -1823,7 +1836,6 @@ static uint64_t Hksr_ENmobile_get_Ptr(HANDLE Tar_handle, LPCWSTR GPath)
 __exit:
     VirtualFree_Internal((void*)GameAssembly_PEbuffer, 0, MEM_RELEASE);
     return retvar;
-
 }
 
 //For choose suspend
@@ -1867,7 +1879,7 @@ int main(/*int argc, char** argvA*/void)
         Show_Error_Msg(L"Get Console HWND Failed!");
     }
     
-    wprintf_s(L"FPS unlocker 2.9.2\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTKver: %u\nNTDLLver: %u\n", (uint32_t)*(uint16_t*)(0x7FFE0260), ParseOSBuildBumber());
+    wprintf_s(L"FPS unlocker 2.9.3\n\nThis program is OpenSource in this link\n https://github.com/winTEuser/Genshin_StarRail_fps_unlocker \n这个程序开源,链接如上\n\nNTKver: %u\nNTDLLver: %u\n", (uint32_t)*(uint16_t*)(0x7FFE0260), ParseOSBuildBumber());
 
     if (NTSTATUS r = init_API())
     {
