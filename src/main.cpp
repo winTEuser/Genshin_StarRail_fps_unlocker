@@ -2048,6 +2048,22 @@ __Get_target_sec:
                 free(strbuffer);
 			}
         }
+        else if(address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 83 FA 40 41 B8 40 00 00 00 4C 0F 42 C2 48 8D 15 ?? ?? ?? ?? 48 89 F1 E8"))
+        {
+            int64_t rip = address;
+            rip += 0x11;
+            rip += *(int32_t*)(rip) + 4;
+            rip = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            uint8_t* strbuffer = (uint8_t*)malloc(0x40);
+            if (strbuffer)
+            {
+                if (ReadProcessMemoryInternal(pi->hProcess, (void*)rip, strbuffer, 0x40, 0))
+                {
+                    printf_s("Genshin ver sign: %s\n", strbuffer);
+                }
+                free(strbuffer);
+            }
+		}
         else
         {
             wprintf_s(L"Unknown game ver\n");
