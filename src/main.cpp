@@ -2261,21 +2261,36 @@ __genshin_il:
         }
         if (Use_mobile_UI)
         {
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 8B 05 ?? ?? ?? ?? 48 8B 88 ?? ?? ?? ?? 48 85 C9 0F ?? ?? ?? ?? ?? BA 02 00 00 00 E8 ?? ?? ?? ?? 48 89 F9 BA 03 00 00 00 E8");
+            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 8B 05 ?? ?? ?? ?? 48 8B 88 ?? ?? ?? ?? 48 85 C9 0F ?? ?? ?? ?? ?? BA 02 00 00 00 41 B0 01 E8 ?? ?? ?? ?? 48 89 F9 BA 03 00 00 00 45 31 C0 E8");
             if (address)
             {
-                int64_t rip = address;
+                int64_t rip = (int64_t)address;
                 rip += 0x3;
                 rip += *(int32_t*)(rip)+4;
-                GI_Func.Grph_class = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-				rip = address + 0xA;
-				GI_Func.Grph_UIcl_VA = *(int32_t*)(rip);
-                rip = address + 0x1D;
-				rip += *(int32_t*)(rip)+4;
-                GI_Func.Func_gui_set = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
-				rip = address + 0x2A;
-				rip += *(int32_t*)(rip)+4;
-                GI_Func.Func_input_set = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                GI_Func.Grph_class = rip - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA;
+                rip = (int64_t)address + 0xA;
+                GI_Func.Grph_UIcl_VA = *(int32_t*)(rip);
+                rip = (int64_t)address + 0x20;
+                rip += *(int32_t*)(rip)+4;
+                GI_Func.Func_gui_set = rip - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA;
+                rip = (int64_t)address + 0x30;
+                rip += *(int32_t*)(rip)+4;
+                GI_Func.Func_input_set = rip - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA;
+            }
+            else if (address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 8B 05 ?? ?? ?? ?? 48 8B 88 ?? ?? ?? ?? 48 85 C9 0F ?? ?? ?? ?? ?? BA 02 00 00 00 E8 ?? ?? ?? ?? 48 89 F9 BA 03 00 00 00 E8"))
+            {
+                int64_t rip = (int64_t)address;
+                rip += 0x3;
+                rip += *(int32_t*)(rip)+4;
+                GI_Func.Grph_class = rip - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA;
+                rip = (int64_t)address + 0xA;
+                GI_Func.Grph_UIcl_VA = *(int32_t*)(rip);
+                rip = (int64_t)address + 0x1D;
+                rip += *(int32_t*)(rip)+4;
+                GI_Func.Func_gui_set = rip - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA;
+                rip = (int64_t)address + 0x2A;
+                rip += *(int32_t*)(rip)+4;
+				GI_Func.Func_input_set = rip - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA;
             }
             else
             {
