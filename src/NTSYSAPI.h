@@ -2176,7 +2176,7 @@ static NTSTATUS init_NTAPI(DWORD* gspeb, DWORD CMode, DWORD64* PretValue)
     else
     {
         DWORD64 addr = 0;
-        size_t sz = 0x2000;
+        size_t sz = 0x4000;
         NTSTATUS ret = tempstore.NtAllocateVirtualMemory((HANDLE)-1, &addr, 0, &sz, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
         if (ret)
             return ret;
