@@ -121,17 +121,59 @@ typedef struct {
 } PatternScanInfo;
 
 
-__declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress, size_t regionSize, const char* signature, PatternScanInfo* results)
+
+__declspec(noinline) static void Get_mask_avx512(LPVOID data, LPVOID maskout, size_t masksize, uint8_t searchbyte)
+{
+    __m512i firstByteVec = _mm512_set1_epi8((char)searchbyte);
+    uint64_t* maskBytes = (uint64_t*)maskout;
+    for (size_t i = 0; i < masksize; ++i)
+    {
+        __m512i blockVec = _mm512_loadu_si512((__m512i*)((uint8_t*)data + (i * sizeof(__m512i))));
+        __mmask64 cmpMask = _mm512_cmpeq_epi8_mask(blockVec, firstByteVec);
+        maskBytes[i] = cmpMask;
+    }
+    _mm256_zeroupper();
+}
+
+
+__declspec(noinline) static void Get_mask_avx2(LPVOID data, LPVOID maskout, size_t masksize, uint8_t searchbyte)
+{
+    __m256i firstByteVec = _mm256_set1_epi8((char)searchbyte);
+    uint32_t* maskBytes = (uint32_t*)maskout;
+    for (size_t i = 0; i < masksize; ++i)
+    {
+        __m256i blockVec = _mm256_loadu_si256((__m256i*)((uint8_t*)data + (i * sizeof(__m256i))));
+        __m256i cmpVec = _mm256_cmpeq_epi8(blockVec, firstByteVec);
+        maskBytes[i] = _mm256_movemask_epi8(cmpVec);
+    }
+    _mm256_zeroupper();
+}
+
+
+__declspec(noinline) static void Get_mask_sse(LPVOID data, LPVOID maskout, size_t masksize, uint8_t searchbyte)
+{
+    __m128i firstByteVec = _mm_set1_epi8((char)searchbyte);
+    uint16_t* maskBytes = (uint16_t*)maskout;
+    for (size_t i = 0; i < masksize; ++i)
+    {
+        __m128i blockVec = _mm_loadu_si128((__m128i*)((uint8_t*)data + (i * sizeof(__m128i))));
+        __m128i cmpVec = _mm_cmpeq_epi8(blockVec, firstByteVec);
+        maskBytes[i] = _mm_movemask_epi8(cmpVec);
+    }
+}
+
+
+__declspec(noinline) static LPVOID PatternScanRegionEx(LPVOID startAddress, size_t regionSize, const char* signature, PatternScanInfo* results)
 {
     if (!signature || !startAddress || !regionSize || !results || !results->buffer || !results->maxCount)
         return 0;
 
-    const size_t kStackThreshold = 512;
-    const size_t kSimdWidth = sizeof(__m256i);
+    const size_t kStackThreshold = 1024;
+    const size_t kSimdWidth = sizeof(__m512i);
 
     struct PatternData {
         uint8_t* bytes = nullptr;
-        uint32_t* masks = nullptr;
+        uint64_t* masks = nullptr;
         bool* patternWildcard = nullptr;
         size_t length = 0;
         size_t blockCount = 0;
@@ -169,7 +211,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
         // 栈上分配
         static constexpr size_t kMaxStackSize = kStackThreshold;
         uint8_t stackBytes[kMaxStackSize];
-        uint32_t stackMasks[kMaxStackSize / kSimdWidth];
+        uint64_t stackMasks[kMaxStackSize / kSimdWidth];
         bool stackPatternWildcard[kMaxStackSize];
 
         pattern.bytes = stackBytes;
@@ -181,7 +223,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
     {
         // 堆上分配
         pattern.bytes = (uint8_t*)malloc(totalSize);
-        pattern.masks = (uint32_t*)malloc(maskCount * sizeof(uint32_t));
+        pattern.masks = (uint64_t*)malloc(maskCount * sizeof(uint64_t));
         pattern.patternWildcard = (bool*)malloc(patternLen * sizeof(bool));
         if (!pattern.bytes || !pattern.masks || !pattern.patternWildcard)
         {
@@ -194,7 +236,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
     }
 
     memset(pattern.bytes, 0, totalSize);
-    memset(pattern.masks, 0, maskCount * sizeof(uint32_t));
+    memset(pattern.masks, 0, maskCount * sizeof(uint64_t));
     memset(pattern.patternWildcard, 0, patternLen * sizeof(bool));
 
     p = signature;
@@ -235,7 +277,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
             size_t bitPos = index % kSimdWidth;
 
             pattern.bytes[blockIdx * kSimdWidth + bitPos] = byteValue;
-            pattern.masks[blockIdx] |= (1 << bitPos);
+            pattern.masks[blockIdx] |= (1ULL << bitPos);
         }
         index++;
     }
@@ -252,9 +294,9 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
     }
 
     uint8_t* scanBytes = (uint8_t*)startAddress;
-    size_t scanEnd = regionSize - (patternLen + sizeof(__m512i));
+    size_t scanEnd = regionSize - (patternLen + kSimdWidth);
     size_t scannedBytes = 0;
-    uintptr_t* resultBuffer = results->buffer;
+    LPVOID* resultBuffer = (LPVOID*)results->buffer;
     const size_t maxCount = results->maxCount - 1;
     size_t foundCount = 0;
 
@@ -267,7 +309,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
         size_t blockIdx = firstNonWildcardIdx / kSimdWidth;
         size_t bitPos = firstNonWildcardIdx % kSimdWidth;
 
-        if (pattern.masks[blockIdx] & (1 << bitPos))
+        if (pattern.masks[blockIdx] & (1ULL << bitPos))
         {
             firstNonWildcardByte = pattern.bytes[blockIdx * kSimdWidth + bitPos];
             break;
@@ -285,33 +327,19 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
         }
         return startAddress;
     }
-
+    // 部分nop指令用来强制让编译器对其循环开头到16字节对齐
     _mm_prefetch((const char*)(scanBytes), _MM_HINT_T0);
     if (g_cpuFeatures & AVX512_Support)
     {
         constexpr size_t avx512Width = sizeof(__m512i);
-        __m512i firstByteVec = _mm512_set1_epi8((char)firstNonWildcardByte);
-        scanEnd -= (avx512Width * 4);
+        constexpr size_t avx512BlocksPerScan = 8;
+        uint64_t combinedMasks[avx512BlocksPerScan];
 
         while (scannedBytes <= scanEnd)
         {
-            __m512i dataBlocks[4];
-            __mmask64 cmpMasks[4];
-
-            for (int i = 0; i < 4; i++)
-            {
-                dataBlocks[i] = _mm512_loadu_si512((const __m512i*)(scanBytes + scannedBytes + avx512Width * i));
-                cmpMasks[i] = _mm512_cmpeq_epi8_mask(dataBlocks[i], firstByteVec);
-            }
-
-            uint64_t combinedMasks[4] = {
-                (uint64_t)cmpMasks[0],
-                (uint64_t)cmpMasks[1],
-                (uint64_t)cmpMasks[2],
-                (uint64_t)cmpMasks[3]
-            };
-
-            for (int vectorIdx = 0; vectorIdx < 4; vectorIdx++)
+            Get_mask_avx512(scanBytes + scannedBytes, combinedMasks, avx512BlocksPerScan, firstNonWildcardByte);
+            __nop(); __nop();
+            for (int vectorIdx = 0; vectorIdx < avx512BlocksPerScan; vectorIdx++)
             {
                 uint64_t mask = combinedMasks[vectorIdx];
                 while (mask != 0)
@@ -320,7 +348,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
                     _BitScanForward64(&bit, mask);
                     mask &= mask - 1;
 
-                    size_t pos = scannedBytes + vectorIdx * avx512Width + bit;
+                    size_t pos = scannedBytes + vectorIdx * kSimdWidth + bit;
 
                     if (!pattern.patternWildcard[patternLen - 1])
                     {
@@ -330,68 +358,58 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
                         }
                     }
 
-                    __nop();
                     bool matched = true;
                     for (size_t blockIdx = 0; blockIdx < pattern.blockCount; blockIdx++)
                     {
                         size_t byteOffset = blockIdx * kSimdWidth;
-                        if (pos + byteOffset + kSimdWidth > regionSize)
+                        uint64_t blockMask = pattern.masks[blockIdx];
+
+                        // 逐段（每段 16 字节）进行比较，一段失败立刻停止当前 block
+                        for (int seg = 0; seg < 4; ++seg)
                         {
-                            matched = false;
-                            break;
+                            uint16_t segMask = (uint16_t)(blockMask >> (seg * 16));
+
+                            __m128i dataSeg = _mm_loadu_si128(
+                                (const __m128i*)(scanBytes + pos + byteOffset + seg * 16));
+                            __m128i patSeg = _mm_loadu_si128(
+                                (const __m128i*)(pattern.bytes + byteOffset + seg * 16));
+                            __m128i cmp = _mm_cmpeq_epi8(dataSeg, patSeg);
+
+                            if ((_mm_movemask_epi8(cmp) & segMask) != segMask)
+                            {
+                                matched = false;
+                                break;   // 退出 seg 循环
+                            }
                         }
 
-                        __m256i dataChunk = _mm256_loadu_si256((const __m256i*)(scanBytes + pos + byteOffset));
-                        __m256i patternChunk = _mm256_loadu_si256((const __m256i*)(pattern.bytes + byteOffset));
-                        __m256i cmp = _mm256_cmpeq_epi8(dataChunk, patternChunk);
-                        int maskResult = _mm256_movemask_epi8(cmp);
-
-                        if ((maskResult & pattern.masks[blockIdx]) != pattern.masks[blockIdx])
-                        {
-                            matched = false;
-                            break;
-                        }
+                        if (!matched)
+                            break;       // 退出 block 循环
                     }
 
                     if (matched)
                     {
-                        resultBuffer[foundCount++] = (uintptr_t)(scanBytes + pos);
-                        if (foundCount >= maxCount)
+                        resultBuffer[foundCount++] = (scanBytes + pos);
+                        if (foundCount > maxCount)
                         {
-                            goto _m512_cleanup;
+                            goto _vecreg_cleanup;
                         }
                     }
                 }
             }
-            scannedBytes += avx512Width * 4;
+            scannedBytes += avx512Width * avx512BlocksPerScan;
+            _mm_prefetch((const char*)(scanBytes + scannedBytes), _MM_HINT_T0);
         }
-    _m512_cleanup:
-        _mm256_zeroupper();
     }
     else if (g_cpuFeatures & AVX2_Support)
     {
         constexpr size_t avx2Width = sizeof(__m256i);
-        constexpr uint8_t avx2BlocksPerScan = 4;
-        __m256i firstByteVec = _mm256_set1_epi8((char)firstNonWildcardByte);
+        constexpr size_t avx2BlocksPerScan = 16;
         scanEnd -= (avx2Width * avx2BlocksPerScan);
-
+        uint64_t combinedMasks[avx2BlocksPerScan / 2];
         while (scannedBytes <= scanEnd)
         {
-            __m256i dataBlocks[avx2BlocksPerScan];
-            uint64_t combinedMasks[avx2BlocksPerScan / 2];
-
-            for (int i = 0; i < avx2BlocksPerScan; i++)
-            {
-                dataBlocks[i] = _mm256_loadu_si256((const __m256i*)(scanBytes + scannedBytes + avx2Width * i));
-            }
-
-            combinedMasks[0] = (uint64_t)_mm256_movemask_epi8(_mm256_cmpeq_epi8(dataBlocks[0], firstByteVec)) |
-                ((uint64_t)_mm256_movemask_epi8(_mm256_cmpeq_epi8(dataBlocks[1], firstByteVec)) << 32);
-
-            combinedMasks[1] = (uint64_t)_mm256_movemask_epi8(_mm256_cmpeq_epi8(dataBlocks[2], firstByteVec)) |
-                ((uint64_t)_mm256_movemask_epi8(_mm256_cmpeq_epi8(dataBlocks[3], firstByteVec)) << 32);
-
-            __nop();
+            Get_mask_avx2(scanBytes + scannedBytes, combinedMasks, avx2BlocksPerScan, firstNonWildcardByte);
+            __nop(); __nop();
             for (int maskIdx = 0; maskIdx < (avx2BlocksPerScan / 2); maskIdx++)
             {
                 uint64_t mask = combinedMasks[maskIdx];
@@ -401,7 +419,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
                     _BitScanForward64(&bit, mask);
                     mask &= mask - 1;
 
-                    size_t pos = scannedBytes + (maskIdx * (avx2Width * 2)) + bit;
+                    size_t pos = scannedBytes + (maskIdx * kSimdWidth) + bit;
 
                     if (!pattern.patternWildcard[patternLen - 1])
                     {
@@ -413,113 +431,118 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
                     bool matched = true;
                     for (size_t blockIdx = 0; blockIdx < pattern.blockCount; blockIdx++)
                     {
-                        size_t byteOffset = blockIdx * avx2Width;
-                        if (pos + byteOffset + avx2Width > regionSize)
+                        size_t byteOffset = blockIdx * kSimdWidth;
+                        uint64_t blockMask = pattern.masks[blockIdx];
+
+                        // 逐段（每段 16 字节）进行比较，一段失败立刻停止当前 block
+                        for (int seg = 0; seg < 4; ++seg)
                         {
-                            matched = false;
-                            break;
+                            uint16_t segMask = (uint16_t)(blockMask >> (seg * 16));
+
+                            __m128i dataSeg = _mm_loadu_si128(
+                                (const __m128i*)(scanBytes + pos + byteOffset + seg * 16));
+                            __m128i patSeg = _mm_loadu_si128(
+                                (const __m128i*)(pattern.bytes + byteOffset + seg * 16));
+                            __m128i cmp = _mm_cmpeq_epi8(dataSeg, patSeg);
+
+                            if ((_mm_movemask_epi8(cmp) & segMask) != segMask)
+                            {
+                                matched = false;
+                                break;   // 退出 seg 循环
+                            }
                         }
 
-                        __m256i dataChunk = _mm256_loadu_si256((const __m256i*)(scanBytes + pos + byteOffset));
-                        __m256i patternChunk = _mm256_loadu_si256((const __m256i*)(pattern.bytes + byteOffset));
-                        __m256i cmp = _mm256_cmpeq_epi8(dataChunk, patternChunk);
-                        int maskResult = _mm256_movemask_epi8(cmp);
-
-                        if ((maskResult & pattern.masks[blockIdx]) != pattern.masks[blockIdx])
-                        {
-                            matched = false;
-                            break;
-                        }
+                        if (!matched)
+                            break;       // 退出 block 循环
                     }
 
                     if (matched)
                     {
-                        resultBuffer[foundCount++] = (uintptr_t)(scanBytes + pos);
-                        if (foundCount >= maxCount)
+                        resultBuffer[foundCount++] = (scanBytes + pos);
+                        if (foundCount > maxCount)
                         {
-                            goto _m256_cleanup;
+                            goto _vecreg_cleanup;
                         }
                     }
                 }
             }
-
             scannedBytes += (avx2Width * avx2BlocksPerScan);
+            _mm_prefetch((const char*)(scanBytes + scannedBytes), _MM_HINT_T0);
         }
-
-    _m256_cleanup:
-        _mm256_zeroupper();
     }
     else
     {
-        __m128i firstByteVec = _mm_set1_epi8((char)firstNonWildcardByte);
-        scanEnd -= (kSimdWidth * 2);
+        constexpr size_t sse2Width = sizeof(__m128i);
+        constexpr size_t sse2BlocksPerScan = 16;
+        scanEnd -= (sse2Width * sse2BlocksPerScan);
 
-        for (; scannedBytes <= scanEnd; scannedBytes += (kSimdWidth * 2))
+        uint64_t combinedMasks[sse2BlocksPerScan / 4];
+        while (scannedBytes <= scanEnd)
         {
-            __m128i dataBlock0 = _mm_loadu_si128((const __m128i*)(scanBytes + scannedBytes));
-            __m128i dataBlock1 = _mm_loadu_si128((const __m128i*)(scanBytes + scannedBytes + 16));
-            __m128i dataBlock2 = _mm_loadu_si128((const __m128i*)(scanBytes + scannedBytes + 32));
-            __m128i dataBlock3 = _mm_loadu_si128((const __m128i*)(scanBytes + scannedBytes + 48));
-            __m128i cmp0 = _mm_cmpeq_epi8(dataBlock0, firstByteVec);
-            __m128i cmp1 = _mm_cmpeq_epi8(dataBlock1, firstByteVec);
-            __m128i cmp2 = _mm_cmpeq_epi8(dataBlock2, firstByteVec);
-            __m128i cmp3 = _mm_cmpeq_epi8(dataBlock3, firstByteVec);
+            Get_mask_sse(scanBytes + scannedBytes, combinedMasks, sse2BlocksPerScan, firstNonWildcardByte);
 
-            uint64_t mask = (uint64_t)(_mm_movemask_epi8(cmp0) | (_mm_movemask_epi8(cmp1) << 16) | (((uint64_t)_mm_movemask_epi8(cmp2)) << 32) | (((uint64_t)_mm_movemask_epi8(cmp3)) << 48));
-
-            while (mask != 0)
+            for (int maskIdx = 0; maskIdx < (sse2BlocksPerScan / 4); maskIdx++)
             {
-                DWORD bit;
-                _BitScanForward64(&bit, mask);
-                mask &= mask - 1;
-
-                size_t pos = scannedBytes + bit;
-
-                if (!pattern.patternWildcard[patternLen - 1])
+                uint64_t mask = combinedMasks[maskIdx];
+                while (mask != 0)
                 {
-                    if (scanBytes[pos + patternLen - 1] != pattern.bytes[patternLen - 1])
-                    {
-                        continue;
-                    }
-                }
+                    DWORD bit;
+                    _BitScanForward64(&bit, mask);
+                    mask &= mask - 1;
 
-                bool matched = true;
-                for (size_t blockIdx = 0; blockIdx < pattern.blockCount; blockIdx++)
-                {
-                    size_t byteOffset = blockIdx * kSimdWidth;
-                    if (pos + byteOffset + kSimdWidth > regionSize)
+                    size_t pos = scannedBytes + (maskIdx * kSimdWidth) + bit;
+
+                    if (!pattern.patternWildcard[patternLen - 1])
                     {
-                        matched = false;
-                        break;
+                        if (scanBytes[pos + patternLen - 1] != pattern.bytes[patternLen - 1])
+                        {
+                            continue;
+                        }
                     }
 
-                    __m128i dataChunk0 = _mm_loadu_si128((const __m128i*)(scanBytes + pos + byteOffset));
-                    __m128i dataChunk1 = _mm_loadu_si128((const __m128i*)(scanBytes + pos + byteOffset + 16));
-                    __m128i patternChunk0 = _mm_loadu_si128((const __m128i*)(pattern.bytes + byteOffset));
-                    __m128i patternChunk1 = _mm_loadu_si128((const __m128i*)(pattern.bytes + byteOffset + 16));
-                    __m128i cmp0 = _mm_cmpeq_epi8(dataChunk0, patternChunk0);
-                    __m128i cmp1 = _mm_cmpeq_epi8(dataChunk1, patternChunk1);
-                    int maskResult = _mm_movemask_epi8(cmp0) | (_mm_movemask_epi8(cmp1) << 16);
-
-                    if ((maskResult & pattern.masks[blockIdx]) != pattern.masks[blockIdx])
+                    bool matched = true;
+                    for (size_t blockIdx = 0; blockIdx < pattern.blockCount; blockIdx++)
                     {
-                        matched = false;
-                        break;
+                        size_t byteOffset = blockIdx * kSimdWidth;
+                        uint64_t blockMask = pattern.masks[blockIdx];
+
+                        // 逐段（每段 16 字节）进行比较，一段失败立刻停止当前 block
+                        for (int seg = 0; seg < 4; ++seg)
+                        {
+                            uint16_t segMask = (uint16_t)(blockMask >> (seg * 16));
+
+                            __m128i dataSeg = _mm_loadu_si128(
+                                (const __m128i*)(scanBytes + pos + byteOffset + seg * 16));
+                            __m128i patSeg = _mm_loadu_si128(
+                                (const __m128i*)(pattern.bytes + byteOffset + seg * 16));
+                            __m128i cmp = _mm_cmpeq_epi8(dataSeg, patSeg);
+
+                            if ((_mm_movemask_epi8(cmp) & segMask) != segMask)
+                            {
+                                matched = false;
+                                break;   // 退出 seg 循环
+                            }
+                        }
+
+                        if (!matched)
+                            break;       // 退出 block 循环
                     }
-                }
 
-                if (matched)
-                {
-                    resultBuffer[foundCount++] = (uintptr_t)(scanBytes + pos);
-                    if (foundCount > maxCount)
+                    if (matched)
                     {
-                        goto cleanup;
+                        resultBuffer[foundCount++] = (scanBytes + pos);
+                        if (foundCount > maxCount)
+                        {
+                            goto cleanup;
+                        }
                     }
                 }
             }
+            scannedBytes += (sse2Width * sse2BlocksPerScan);
+            _mm_prefetch((const char*)(scanBytes + scannedBytes), _MM_HINT_T0);
         }
     }
-
+_vecreg_cleanup:
     if ((patternLen < (regionSize - scannedBytes)) && (foundCount < maxCount))
     {
         scanBytes += scannedBytes;
@@ -533,7 +556,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
                 size_t blockIdx = j / kSimdWidth;
                 size_t bitPos = j % kSimdWidth;
 
-                if ((pattern.masks[blockIdx] & (1 << bitPos)) && scanBytes[i + j] != pattern.bytes[blockIdx * kSimdWidth + bitPos])
+                if ((pattern.masks[blockIdx] & (1ULL << bitPos)) && scanBytes[i + j] != pattern.bytes[blockIdx * kSimdWidth + bitPos])
                 {
                     matched = false;
                     break;
@@ -542,7 +565,7 @@ __declspec(noinline) static uintptr_t PatternScanRegionEx(uintptr_t startAddress
 
             if (matched)
             {
-                resultBuffer[foundCount++] = (uintptr_t)(scanBytes + i);
+                resultBuffer[foundCount++] = (scanBytes + i);
                 if (foundCount >= maxCount)
                 {
                     break;
@@ -564,7 +587,7 @@ cleanup:
 }
 
 
-static uintptr_t PatternScan_Region(uintptr_t startAddress, size_t regionSize, const char* signature)
+static LPVOID PatternScan_Region(LPVOID startAddress, size_t regionSize, const char* signature)
 {
     uintptr_t results_buffer[1] = { 0 };
     PatternScanInfo results = { results_buffer, 1, 0 };
@@ -718,7 +741,7 @@ static FORCEINLINE void DelWstring(wstring** pwstr)
 }
 
 //[in],[in],[out],[out],[in]
-static bool Get_Section_info(uintptr_t PE_buffer, LPCSTR Name_sec, uint32_t* Sec_Vsize, uintptr_t* Sec_Remote_RVA, uintptr_t Remote_BaseAddr)
+static bool Get_Section_info(LPVOID PE_buffer, LPCSTR Name_sec, uint32_t* Sec_Vsize, LPVOID* Sec_Remote_RVA, LPVOID Remote_BaseAddr)
 {
     if ((!PE_buffer) || (!Name_sec) || (!Sec_Vsize) || (!Sec_Remote_RVA))
         return 0;
@@ -740,7 +763,7 @@ static bool Get_Section_info(uintptr_t PE_buffer, LPCSTR Name_sec, uint32_t* Sec
             {
                 target_sec_VA_start = _sec_temp->VirtualAddress;
                 *Sec_Vsize = _sec_temp->Misc.VirtualSize;
-                *Sec_Remote_RVA = Remote_BaseAddr + target_sec_VA_start;
+                *Sec_Remote_RVA = (LPVOID)((uintptr_t)Remote_BaseAddr + target_sec_VA_start);
                 return 1;
             }
             num--;
@@ -1393,7 +1416,7 @@ typedef struct inject_arg
 }inject_arg, *Pinject_arg;
 
 //Code inject
-static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t _ptr_fps, inject_arg* arg)
+static uint64_t inject_patch(HANDLE Tar_handle, LPVOID Tar_ModBase, LPVOID _ptr_fps, inject_arg* arg)
 {
     if (!_ptr_fps)
         return 0;
@@ -1430,7 +1453,7 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t
 
     if (!isGenshin)
     {
-        *(uint64_t*)(_sc_buffer + 0x18) = _ptr_fps;
+        *(uint64_t*)(_sc_buffer + 0x18) = (uint64_t)_ptr_fps;
     }
 
     LPVOID Remote_payload_buffer = VirtualAllocEx_Internal(Tar_handle, NULL, 0x4000, PAGE_READWRITE);
@@ -1484,7 +1507,7 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t
             uint64_t Private_buffer = 0;
             for (uint64_t buffer = 0x10000; !Private_buffer && buffer < 0x7FFF8000; buffer += 0x1000)
             {
-                Private_buffer = (uint64_t)VirtualAllocEx_Internal(Tar_handle, (void*)(Tar_ModBase - buffer), 0x1000, PAGE_READWRITE);
+                Private_buffer = (uint64_t)VirtualAllocEx_Internal(Tar_handle, (void*)((uint64_t)Tar_ModBase - buffer), 0x1000, PAGE_READWRITE);
             }
             if (!Private_buffer)
             {
@@ -1492,7 +1515,7 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t
                 return 0;
             }
             *(uint64_t*)(_sc_buffer + 0x18) = Private_buffer;
-            uint64_t alienaddr = _ptr_fps & 0xFFFFFFFFFFFFFFF8;
+            uint64_t alienaddr = (uint64_t)_ptr_fps & 0xFFFFFFFFFFFFFFF8;
             Phooked_func_struct Pfps_patch = (Phooked_func_struct)hook_info_ptr;
             Pfps_patch->func_addr = alienaddr;
             if (!ReadProcessMemoryInternal(Tar_handle, (void*)alienaddr, (void*)&Pfps_patch->orgpart, 0x10, 0))
@@ -1501,8 +1524,8 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t
                 return 0;
             }
             Pfps_patch->hookedpart = Pfps_patch->orgpart;
-            uint8_t mask = _ptr_fps & 0x7;
-            int32_t immva = (int64_t)((Private_buffer - _ptr_fps) - 4);
+            uint8_t mask = (uint64_t)_ptr_fps & 0x7;
+            int32_t immva = (int64_t)((Private_buffer - (uint64_t)_ptr_fps) - 4);
             *(int32_t*)(((uint64_t)(&Pfps_patch->hookedpart)) + mask) = immva;
             hook_info_ptr = (uint64_t)hook_info_ptr + sizeof(hooked_func_struct);
         }
@@ -1525,10 +1548,10 @@ static uint64_t inject_patch(HANDLE Tar_handle, uintptr_t Tar_ModBase, uintptr_t
             Phooked_func_struct PgetDPI = (Phooked_func_struct)hook_info_ptr;
             uint8_t patch_code[] =
             {
-                0xB8, 0x60, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x6E, 0xC0, 0x0F, 0x5B, 0xC0, 0xC3, 0xCC, 0xCC, 0xCC
+                0xB8, 0x60, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x6E, 0xC0, 0xC3, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC
             };
-            uint32_t dpiscale_n = Custom_DPI_Scale * 96;
-            *(uint32_t*)(patch_code + 0x1) = dpiscale_n;
+            float dpiscale_n = Custom_DPI_Scale * 96;
+            *(float*)(patch_code + 0x1) = dpiscale_n;
             PgetDPI->hookedpart = *(__m128i*)patch_code;
             PgetDPI->func_addr = GI_Func->Func_getDPI;
             if (!ReadProcessMemoryInternal(Tar_handle, (void*)PgetDPI->func_addr, (void*)&PgetDPI->orgpart, 0x10, 0))
@@ -1789,7 +1812,7 @@ __failure_safe_exit:
 //Get the address of the ptr in the target process
 static uint64_t Hksr_ENmobile_get_Ptr(HANDLE Tar_handle, LPCWSTR GPath)
 {
-    uintptr_t GameAssembly_PEbuffer;
+    LPVOID GameAssembly_PEbuffer;
     HMODULE il2cpp_base;
     {
         wstring path = GPath;
@@ -1800,10 +1823,10 @@ static uint64_t Hksr_ENmobile_get_Ptr(HANDLE Tar_handle, LPCWSTR GPath)
             Show_Error_Msg(L"load GameAssembly.dll Failed !\n");
             return 0;
         }
-        GameAssembly_PEbuffer = (uintptr_t)VirtualAlloc_Internal(0, 0x1000, PAGE_READWRITE);
+        GameAssembly_PEbuffer = VirtualAlloc_Internal(0, 0x1000, PAGE_READWRITE);
         if (!GameAssembly_PEbuffer)
             return 0;
-        if (!ReadProcessMemoryInternal(Tar_handle, il2cpp_base, (void*)GameAssembly_PEbuffer, 0x1000, 0))
+        if (!ReadProcessMemoryInternal(Tar_handle, il2cpp_base, GameAssembly_PEbuffer, 0x1000, 0))
             return 0;
         
         int32_t* WinPEfileVA = (int32_t*)((uint64_t)GameAssembly_PEbuffer + 0x3C); //dos_header
@@ -1816,9 +1839,9 @@ static uint64_t Hksr_ENmobile_get_Ptr(HANDLE Tar_handle, LPCWSTR GPath)
             return 0;
 
         VirtualFree_Internal((void*)GameAssembly_PEbuffer, 0, MEM_RELEASE);
-        GameAssembly_PEbuffer = (uintptr_t)IMGbuffer;
+        GameAssembly_PEbuffer = IMGbuffer;
     }
-    uintptr_t Ua_il2cpp_RVA = 0;
+    LPVOID Ua_il2cpp_RVA = 0;
     DWORD32 Ua_il2cpp_Vsize = 0;
     uint64_t retvar = 0;
     if (!Get_Section_info(GameAssembly_PEbuffer, "il2cpp", &Ua_il2cpp_Vsize, &Ua_il2cpp_RVA, GameAssembly_PEbuffer))
@@ -1832,15 +1855,15 @@ static uint64_t Hksr_ENmobile_get_Ptr(HANDLE Tar_handle, LPCWSTR GPath)
         //      75 05 E8 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 28 C3          
         DWORD64 tar_addr;
         DWORD64 address;
-        if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "80 B9 ?? ?? ?? ?? 00 0F 84 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3"))
+        if (address = (DWORD64)PatternScan_Region((LPVOID)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "80 B9 ?? ?? ?? ?? 00 0F 84 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3"))
         {
             tar_addr = address + 15;
         }
-        else if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "80 B9 ?? ?? ?? ?? 00 74 ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3"))
+        else if (address = (DWORD64)PatternScan_Region((LPVOID)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "80 B9 ?? ?? ?? ?? 00 74 ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 20 5E C3"))
         {
             tar_addr = address + 11;
         }
-        else if (address = PatternScan_Region((uintptr_t)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "75 05 E8 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 28 C3"))
+        else if (address = (DWORD64)PatternScan_Region((LPVOID)Ua_il2cpp_RVA, Ua_il2cpp_Vsize, "75 05 E8 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 03 00 00 00 48 83 C4 28 C3"))
         {
             tar_addr = address + 9;
         }
@@ -1852,12 +1875,12 @@ static uint64_t Hksr_ENmobile_get_Ptr(HANDLE Tar_handle, LPCWSTR GPath)
         int64_t rip = tar_addr;
         rip += *(int32_t*)rip;
         rip += 8;
-        rip -= GameAssembly_PEbuffer;
+        rip -= (uintptr_t)GameAssembly_PEbuffer;
         retvar = ((uint64_t)il2cpp_base + rip);
     }
     
 __exit:
-    VirtualFree_Internal((void*)GameAssembly_PEbuffer, 0, MEM_RELEASE);
+    VirtualFree_Internal(GameAssembly_PEbuffer, 0, MEM_RELEASE);
     return retvar;
 }
 
@@ -1990,8 +2013,8 @@ int main(/*int argc, char** argvA*/void)
     }
     //加载和获取模块信息
     LPVOID _imgbase_PE_buffer = 0;
-    uintptr_t Text_Remote_RVA = 0;
-    uintptr_t Unityplayer_baseAddr = 0;
+    LPVOID Text_Remote_RVA = 0;
+    LPVOID Unityplayer_baseAddr = 0;
     uint32_t Text_Vsize = 0;
     
     _imgbase_PE_buffer = VirtualAlloc_Internal(0, 0x1000, PAGE_READWRITE);
@@ -2005,20 +2028,20 @@ int main(/*int argc, char** argvA*/void)
 
     if (isGenshin && is_old_version == 0)
     {
-        Unityplayer_baseAddr = (uint64_t)RemoteDll_Inject(pi->hProcess, 0);
+        Unityplayer_baseAddr = RemoteDll_Inject(pi->hProcess, 0);
     }
     else
     {
         wstring EngPath = *ProcessDir;
         EngPath += L"\\UnityPlayer.dll";
-        Unityplayer_baseAddr = (uintptr_t)RemoteDll_Inject(pi->hProcess, EngPath.c_str());
+        Unityplayer_baseAddr = RemoteDll_Inject(pi->hProcess, EngPath.c_str());
     }
 
     if (Unityplayer_baseAddr)
     {
-        if (ReadProcessMemoryInternal(pi->hProcess, (void*)Unityplayer_baseAddr, _imgbase_PE_buffer, 0x1000, 0))
+        if (ReadProcessMemoryInternal(pi->hProcess, Unityplayer_baseAddr, _imgbase_PE_buffer, 0x1000, 0))
         {
-            if (Get_Section_info((uintptr_t)_imgbase_PE_buffer, ".text", &Text_Vsize, &Text_Remote_RVA, Unityplayer_baseAddr))
+            if (Get_Section_info(_imgbase_PE_buffer, ".text", &Text_Vsize, &Text_Remote_RVA, Unityplayer_baseAddr))
                 goto __Get_target_sec;
         }
     }
@@ -2050,17 +2073,17 @@ __Get_target_sec:
         return 0;
     }
 
-    uintptr_t pfps = 0;
-    uintptr_t address = 0;
+    LPVOID pfps = 0;
+    int64_t address = 0;
     if (isGenshin)
     {
-		address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "0F 10 05 ?? ?? ?? ?? 0F 11 41 ?? 0F 10 05 ?? ?? ?? ?? 0F 11 41 ?? 0F 10 05 ?? ?? ?? ?? 0F 11 41 ?? 0F 10 05 ?? ?? ?? ?? 0F 11 01");
+		address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "0F 10 05 ?? ?? ?? ?? 0F 11 41 ?? 0F 10 05 ?? ?? ?? ?? 0F 11 41 ?? 0F 10 05 ?? ?? ?? ?? 0F 11 41 ?? 0F 10 05 ?? ?? ?? ?? 0F 11 01");
         if (address)
         {
             int64_t rip = address;
             rip += 0x24;
             rip += *(int32_t*)(rip)+4;
-            rip = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            rip = rip - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA;
 			uint8_t* strbuffer = (uint8_t*)malloc(0x50);
             if (strbuffer)
             {
@@ -2071,12 +2094,12 @@ __Get_target_sec:
                 free(strbuffer);
 			}
         }
-        else if(address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 83 FA 40 41 B8 40 00 00 00 4C 0F 42 C2 48 8D 15 ?? ?? ?? ?? 48 89 F1 E8"))
+        else if(address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "48 83 FA 40 41 B8 40 00 00 00 4C 0F 42 C2 48 8D 15 ?? ?? ?? ?? 48 89 F1 E8"))
         {
             int64_t rip = address;
             rip += 0x11;
             rip += *(int32_t*)(rip) + 4;
-            rip = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            rip = rip - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA;
             uint8_t* strbuffer = (uint8_t*)malloc(0x40);
             if (strbuffer)
             {
@@ -2095,13 +2118,13 @@ __Get_target_sec:
     //Get UnityWndclass addr
     if (1)
     {
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "C7 44 24 28 00 00 00 80 C7 44 24 20 00 00 00 80 FF 15 ?? ?? ?? ?? 48 89 05 ?? ?? ?? ?? 48 85 C0");
+        address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "C7 44 24 28 00 00 00 80 C7 44 24 20 00 00 00 80 FF 15 ?? ?? ?? ?? 48 89 05 ?? ?? ?? ?? 48 85 C0");
         if (address)
         {
             int64_t rip = address;
             rip += 0x19;
             rip += *(int32_t*)(rip)+4;
-            injectarg.P_UnityWndclass = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            injectarg.P_UnityWndclass = rip - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA;
         }
         else
         {
@@ -2110,10 +2133,10 @@ __Get_target_sec:
     }
     if (1)
     {
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 83 EC 28 FF D1 31 C0 48 83 C4 28 C3");
+        address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "48 83 EC 28 FF D1 31 C0 48 83 C4 28 C3");
         if (address)
         {
-            injectarg.payloadoep = address - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            injectarg.payloadoep = address - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA;
         }
         else
         {
@@ -2123,13 +2146,13 @@ __Get_target_sec:
                 PatternScanInfo info;
                 info.buffer = buffer;
                 info.maxCount = (0x20000 / sizeof(uintptr_t));
-                address = PatternScanRegionEx((uintptr_t)Copy_Text_VA, Text_Vsize, "FF E1", &info);
+                address = (int64_t)PatternScanRegionEx(Copy_Text_VA, Text_Vsize, "FF E1", &info);
                 if (address)
                 {
                     DWORD64 randnum;
 					_rdrand64_step(&randnum);
                     address = buffer[((randnum ^ (DWORD64)address) % (info.count + 1))];
-                    injectarg.payloadoep = address - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                    injectarg.payloadoep = address - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA;
                 }
 				VirtualFree_Internal(buffer, 0, MEM_RELEASE);
             }
@@ -2139,42 +2162,42 @@ __Get_target_sec:
     if (isGenshin)
     {
         //66 0F 6E 0D ?? ?? ?? ?? 0F 57 C0 0F 5B C9
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "66 0F 6E 0D ?? ?? ?? ?? 0F 57 C0 0F 5B C9");//5.5
+        address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "66 0F 6E 0D ?? ?? ?? ?? 0F 57 C0 0F 5B C9");//5.5
         if (address)
         {
             int64_t rip = address;
             rip += 4;
             //rip += *(int32_t*)(rip)+4;
-            pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            pfps = (LPVOID)(rip - (int64_t)Copy_Text_VA + (int64_t)Text_Remote_RVA);
             goto __genshin_il;
         }
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "7E 0C E8 ?? ?? ?? ?? 66 0F 6E C8 0F 5B C9");//5.4
+        address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "7E 0C E8 ?? ?? ?? ?? 66 0F 6E C8 0F 5B C9");//5.4
         if (address)
         {
             int64_t rip = address;
             rip += 3;
             rip += *(int32_t*)(rip) + 6;
             //rip += *(int32_t*)(rip) + 4;
-            pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            pfps = (LPVOID)(rip - (int64_t)Copy_Text_VA + (int64_t)Text_Remote_RVA);
             goto __genshin_il;
         }
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "7F 0E E8 ?? ?? ?? ?? 66 0F 6E C8"); // ver 3.7 - 5.3 
+        address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "7F 0E E8 ?? ?? ?? ?? 66 0F 6E C8"); // ver 3.7 - 5.3 
         if (address)
         {
             int64_t rip = address;
             rip += 3;
             rip += *(int32_t*)(rip) + 6;
             //rip += *(int32_t*)(rip) + 4;
-            pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            pfps = (LPVOID)(rip - (int64_t)Copy_Text_VA + (int64_t)Text_Remote_RVA);
             goto __genshin_il;
         }
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "7F 0F 8B 05 ?? ?? ?? ?? 66 0F 6E C8"); // ver old
+        address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "7F 0F 8B 05 ?? ?? ?? ?? 66 0F 6E C8"); // ver old
         if (address)
         {
             int64_t rip = address;
             rip += 4;
             //rip += *(int32_t*)(rip) + 4;
-            pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            pfps = (LPVOID)(rip - (int64_t)Copy_Text_VA + (int64_t)Text_Remote_RVA);
             goto __genshin_il;
         }
         Show_Error_Msg(L"Genshin Pattern Outdated!\nPlase wait new update in github.\n\n");
@@ -2186,25 +2209,25 @@ __Get_target_sec:
     else
     {//HKSR_pattern
         isHook = 0;
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "66 0F 6E 05 ?? ?? ?? ?? F2 0F 10 3D ?? ?? ?? ?? 0F 5B C0"); //ver 1.0 - last
+        address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "66 0F 6E 05 ?? ?? ?? ?? F2 0F 10 3D ?? ?? ?? ?? 0F 5B C0"); //ver 1.0 - last
         if (address)
         {
             int64_t rip = address;
             rip += 4;
             rip += *(int32_t*)(rip) + 4;
-            pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            pfps = (LPVOID)(rip - (int64_t)Copy_Text_VA + (int64_t)Text_Remote_RVA);
             
-            if (address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "CC 89 0D ?? ?? ?? ?? E9 ?? ?? ?? ?? CC CC CC CC CC"))
+            if (address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "CC 89 0D ?? ?? ?? ?? E9 ?? ?? ?? ?? CC CC CC CC CC"))
             {
                 int64_t rip = address;
                 rip += 3;
                 rip += *(int32_t*)(rip)+4;
-                if ((rip - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA) == pfps)
+                if ((LPVOID)(rip - (int64_t)Copy_Text_VA + (int64_t)Text_Remote_RVA) == pfps)
                 {
                     rip = address + 1;
-                    DWORD64 Patch0_addr_hook = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                    LPVOID Patch0_addr_hook = (LPVOID)(rip - (int64_t)Copy_Text_VA + (int64_t)Text_Remote_RVA);
                     uint8_t patch = 0x8B;      //mov dword ptr ds:[?????????], ecx   -->  mov ecx, dword ptr ds:[?????????]
-                    if (WriteProcessMemoryInternal(pi->hProcess, (LPVOID)Patch0_addr_hook, (LPVOID)&patch, 0x1, 0) == 0)
+                    if (WriteProcessMemoryInternal(pi->hProcess, Patch0_addr_hook, (LPVOID)&patch, 0x1, 0) == 0)
                     {
                         Show_Error_Msg(L"Patch Fail! ");
                     }
@@ -2225,12 +2248,12 @@ __Get_target_sec:
 __genshin_il:
     if(1)
     {
-        uintptr_t UA_baseAddr = Unityplayer_baseAddr;
+        LPVOID UA_baseAddr = Unityplayer_baseAddr;
         if (is_old_version)
         {
             wstring il2cppPath = *ProcessDir;
             il2cppPath += L"\\YuanShen_Data\\Native\\UserAssembly.dll";
-            UA_baseAddr = (uintptr_t)RemoteDll_Inject(pi->hProcess, il2cppPath.c_str());
+            UA_baseAddr = RemoteDll_Inject(pi->hProcess, il2cppPath.c_str());
             if (UA_baseAddr)
             {
                 if (!ReadProcessMemoryInternal(pi->hProcess, (void*)UA_baseAddr, _imgbase_PE_buffer, 0x1000, 0))
@@ -2239,7 +2262,7 @@ __genshin_il:
                 }
             }
         }
-        if (Get_Section_info((uintptr_t)_imgbase_PE_buffer, "il2cpp", &Text_Vsize, &Text_Remote_RVA, UA_baseAddr))
+        if (Get_Section_info(_imgbase_PE_buffer, "il2cpp", &Text_Vsize, &Text_Remote_RVA, UA_baseAddr))
         {
             goto __Get_sec_ok;
         }
@@ -2264,32 +2287,32 @@ __genshin_il:
         }
         if (isHook)
         {
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 89 F1 E8 ?? ?? ?? ?? 8B 3D ?? ?? ?? ?? 48 8B 0D");
+            address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "48 89 F1 E8 ?? ?? ?? ?? 8B 3D ?? ?? ?? ?? 48 8B 0D");
             if (address)
             {
                 int64_t rip = address;
                 rip += 10;
                 rip += *(int32_t*)rip;
                 rip += 4;
-                injectarg.Pfps = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                injectarg.Pfps = rip - (int64_t)Copy_Text_VA + (int64_t)Text_Remote_RVA;
             }
         }
         else isHook = 0;
         //verfiyhook
-        address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 89 F1 31 D2");
+        address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 89 F1 31 D2");
         if (address)
         {
             int64_t rip = address;
             rip += 0x1;
             rip += *(int32_t*)(rip)+4;
-            injectarg.verfiy = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            injectarg.verfiy = rip - (int64_t)Copy_Text_VA + (int64_t)Text_Remote_RVA;
         }
-        else if (address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 8B 0D"))
+        else if (address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? EB 0D 48 89 F1 BA 02 00 00 00 E8 ?? ?? ?? ?? 48 8B 0D"))
         {
             int64_t rip = address;
             rip += 0x1;
             rip += *(int32_t*)(rip)+4;
-            injectarg.verfiy = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+            injectarg.verfiy = rip - (int64_t)Copy_Text_VA + (int64_t)Text_Remote_RVA;
         }
         else
         {
@@ -2300,7 +2323,7 @@ __genshin_il:
         }
         if (Use_mobile_UI)
         {
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 8B 05 ?? ?? ?? ?? 48 8B 88 ?? ?? ?? ?? 48 85 C9 0F ?? ?? ?? ?? ?? BA 02 00 00 00 41 B0 01 E8 ?? ?? ?? ?? 48 89 F9 BA 03 00 00 00 45 31 C0 E8");
+            address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "48 8B 05 ?? ?? ?? ?? 48 8B 88 ?? ?? ?? ?? 48 85 C9 0F ?? ?? ?? ?? ?? BA 02 00 00 00 41 B0 01 E8 ?? ?? ?? ?? 48 89 F9 BA 03 00 00 00 45 31 C0 E8");
             if (address)
             {
                 int64_t rip = (int64_t)address;
@@ -2316,7 +2339,7 @@ __genshin_il:
                 rip += *(int32_t*)(rip)+4;
                 GI_Func.Func_input_set = rip - (uintptr_t)Copy_Text_VA + (uintptr_t)Text_Remote_RVA;
             }
-            else if (address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 8B 05 ?? ?? ?? ?? 48 8B 88 ?? ?? ?? ?? 48 85 C9 0F ?? ?? ?? ?? ?? BA 02 00 00 00 E8 ?? ?? ?? ?? 48 89 F9 BA 03 00 00 00 E8"))
+            else if (address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "48 8B 05 ?? ?? ?? ?? 48 8B 88 ?? ?? ?? ?? 48 85 C9 0F ?? ?? ?? ?? ?? BA 02 00 00 00 E8 ?? ?? ?? ?? 48 89 F9 BA 03 00 00 00 E8"))
             {
                 int64_t rip = (int64_t)address;
                 rip += 0x3;
@@ -2335,7 +2358,7 @@ __genshin_il:
             {
                 Use_mobile_UI = 0;
             }
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "48 8B 05 ?? ?? ?? ?? 0F 85 ?? ?? ?? ?? 48 8B B8 ?? ?? ?? ?? 48 85 FF 0F 84 ?? ?? ?? ?? 83 BF ?? ?? ?? ?? 03");
+            address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "48 8B 05 ?? ?? ?? ?? 0F 85 ?? ?? ?? ?? 48 8B B8 ?? ?? ?? ?? 48 85 FF 0F 84 ?? ?? ?? ?? 83 BF ?? ?? ?? ?? 03");
             if (address)
             {
                 int64_t rip = address;
@@ -2349,7 +2372,7 @@ __genshin_il:
 
             if (Custom_DPI_Scale)
             {
-                address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "0F 14 F8 E8 ?? ?? ?? ?? 0F 14 F0 0F 59 F7");
+                address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "0F 14 F8 E8 ?? ?? ?? ?? 0F 14 F0 0F 59 F7");
                 if (address)
                 {
                     int64_t rip = (int64_t)address;
@@ -2365,13 +2388,13 @@ __genshin_il:
 
             //Unhook_hook
             //old 48 89 F1 E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 80 B9 ?? ?? ?? ?? 00
-            address = PatternScan_Region((uintptr_t)Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D");
+            address = (int64_t)PatternScan_Region(Copy_Text_VA, Text_Vsize, "E8 ?? ?? ?? ?? 48 89 D9 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 48 8B 0D");
             if (address)
             {
                 int64_t rip = address;
                 rip += 0x9;
                 rip += *(int32_t*)(rip)+4;
-                GI_Func.UI_unhook_time = rip - (uintptr_t)Copy_Text_VA + Text_Remote_RVA;
+                GI_Func.UI_unhook_time = rip - (int64_t)Copy_Text_VA + (int64_t)Text_Remote_RVA;
             }
             else
             {
