@@ -294,7 +294,7 @@ __declspec(noinline) static LPVOID PatternScanRegionEx(LPVOID startAddress, size
     }
 
     uint8_t* scanBytes = (uint8_t*)startAddress;
-    size_t scanEnd = regionSize - (patternLen + kSimdWidth);
+    size_t scanEnd = regionSize - (patternLen * 2);
     size_t scannedBytes = 0;
     LPVOID* resultBuffer = (LPVOID*)results->buffer;
     const size_t maxCount = results->maxCount - 1;
@@ -327,14 +327,14 @@ __declspec(noinline) static LPVOID PatternScanRegionEx(LPVOID startAddress, size
         }
         return startAddress;
     }
-    // 部分nop指令用来强制让编译器对其循环开头到16字节对齐
+    // 使用nop指令填充用来强制让编译器对loopstartpos到16字节对齐
     _mm_prefetch((const char*)(scanBytes), _MM_HINT_T0);
     if (g_cpuFeatures & AVX512_Support)
     {
         constexpr size_t avx512Width = sizeof(__m512i);
-        constexpr size_t avx512BlocksPerScan = 8;
+        constexpr size_t avx512BlocksPerScan = 16;
         uint64_t combinedMasks[avx512BlocksPerScan];
-
+        scanEnd -= (avx512Width * avx512BlocksPerScan);
         while (scannedBytes <= scanEnd)
         {
             Get_mask_avx512(scanBytes + scannedBytes, combinedMasks, avx512BlocksPerScan, firstNonWildcardByte);
