@@ -36,6 +36,7 @@ uint32_t Tar_Device = DEFAULT_DEVICE;
 uint32_t Target_set_60 = 1000;
 uint32_t Target_set_30 = 60;
 uint32_t PowerSave_target = 10;
+bool PowerSaveEnable = 1;   // 失焦节能开关：1=开启（默认，保持原行为），0=关闭
 float Custom_DPI_Scale = 0;
 bool isGenshin = 1;
 bool Use_mobile_UI = 0;
@@ -841,6 +842,7 @@ static bool WriteConfig(int fps)
     }
     {
         content += L"PowerSaveTarget=" + std::to_wstring(PowerSave_target) + L"\n";
+        content += L"PowerSaveEnable=" + std::to_wstring(PowerSaveEnable) + L"\n";
     }
     {
         content += L"EnableErrorMsg=" + std::to_wstring(ErrorMsg_EN) + L"\n";
@@ -1245,6 +1247,7 @@ static bool LoadConfig()
     Target_set_60 = reader.GetInteger(L"Setting", L"GenShinTarget60", Target_set_60);
     Custom_DPI_Scale = reader.GetFloat(L"Setting", L"CustomDPIScale", Custom_DPI_Scale);
     PowerSave_target = reader.GetInteger(L"Setting", L"PowerSaveTarget", PowerSave_target);
+    PowerSaveEnable = reader.GetBoolean(L"Setting", L"PowerSaveEnable", PowerSaveEnable);
     ErrorMsg_EN = reader.GetBoolean(L"Setting", L"EnableErrorMsg", ErrorMsg_EN);
     AutoExit = reader.GetBoolean(L"Setting", L"AutoExit", AutoExit);
     isHook = reader.GetBoolean(L"Setting", L"IsHookGameSet", isHook);
@@ -1465,7 +1468,7 @@ static uint64_t inject_patch(HANDLE Tar_handle, LPVOID Tar_ModBase, LPVOID _ptr_
 
     uint64_t hook_info_ptr = ((uint64_t)_sc_buffer + 0x2000);
     PHook_func_list GI_Func = (PHook_func_list)arg->PfuncList;
-    if (arg->P_UnityWndclass)
+    if (arg->P_UnityWndclass && PowerSaveEnable)
     {
         *(uint64_t*)(_sc_buffer + 0x30) = (uint64_t)Remote_payload_buffer + PowerSaveSet_FuncVA;
         *(uint64_t*)(_sc_buffer + PowerSaveSet_FuncVA + 0x10) = arg->P_UnityWndclass;
