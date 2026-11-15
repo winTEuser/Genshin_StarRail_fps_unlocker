@@ -842,6 +842,8 @@ static bool WriteConfig(int fps)
     }
     {
         content += L"PowerSaveTarget=" + std::to_wstring(PowerSave_target) + L"\n";
+	}
+	{
         content += L"PowerSaveEnable=" + std::to_wstring(PowerSaveEnable) + L"\n";
     }
     {
