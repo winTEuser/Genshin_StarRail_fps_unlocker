@@ -75,6 +75,8 @@ const DECLSPEC_ALIGN(32) int8_t g_HexLookup[256] = {
 #define SSE2_Support 0b0001
 #define AVX2_Support 0b0010
 #define AVX512_Support 0b0100
+#define BlockNumPerScan 16UL
+
 
 static uint8_t InitCPUFeatures()
 {
@@ -123,11 +125,11 @@ typedef struct {
 
 
 
-__declspec(noinline) static void Get_mask_avx512(LPVOID data, LPVOID maskout, size_t masksize, uint8_t searchbyte)
+__declspec(noinline) static void Get_mask_avx512(LPVOID data, LPVOID maskout, uint8_t searchbyte)
 {
     __m512i firstByteVec = _mm512_set1_epi8((char)searchbyte);
     uint64_t* maskBytes = (uint64_t*)maskout;
-    for (size_t i = 0; i < masksize; ++i)
+    for (size_t i = 0; i < BlockNumPerScan; ++i)
     {
         __m512i blockVec = _mm512_loadu_si512((__m512i*)((uint8_t*)data + (i * sizeof(__m512i))));
         __mmask64 cmpMask = _mm512_cmpeq_epi8_mask(blockVec, firstByteVec);
@@ -137,11 +139,11 @@ __declspec(noinline) static void Get_mask_avx512(LPVOID data, LPVOID maskout, si
 }
 
 
-__declspec(noinline) static void Get_mask_avx2(LPVOID data, LPVOID maskout, size_t masksize, uint8_t searchbyte)
+__declspec(noinline) static void Get_mask_avx2(LPVOID data, LPVOID maskout, uint8_t searchbyte)
 {
     __m256i firstByteVec = _mm256_set1_epi8((char)searchbyte);
     uint32_t* maskBytes = (uint32_t*)maskout;
-    for (size_t i = 0; i < masksize; ++i)
+    for (size_t i = 0; i < BlockNumPerScan; ++i)
     {
         __m256i blockVec = _mm256_loadu_si256((__m256i*)((uint8_t*)data + (i * sizeof(__m256i))));
         __m256i cmpVec = _mm256_cmpeq_epi8(blockVec, firstByteVec);
@@ -151,11 +153,11 @@ __declspec(noinline) static void Get_mask_avx2(LPVOID data, LPVOID maskout, size
 }
 
 
-__declspec(noinline) static void Get_mask_sse(LPVOID data, LPVOID maskout, size_t masksize, uint8_t searchbyte)
+__declspec(noinline) static void Get_mask_sse(LPVOID data, LPVOID maskout, uint8_t searchbyte)
 {
     __m128i firstByteVec = _mm_set1_epi8((char)searchbyte);
     uint16_t* maskBytes = (uint16_t*)maskout;
-    for (size_t i = 0; i < masksize; ++i)
+    for (size_t i = 0; i < BlockNumPerScan; ++i)
     {
         __m128i blockVec = _mm_loadu_si128((__m128i*)((uint8_t*)data + (i * sizeof(__m128i))));
         __m128i cmpVec = _mm_cmpeq_epi8(blockVec, firstByteVec);
@@ -333,12 +335,12 @@ __declspec(noinline) static LPVOID PatternScanRegionEx(LPVOID startAddress, size
     if (g_cpuFeatures & AVX512_Support)
     {
         constexpr size_t avx512Width = sizeof(__m512i);
-        constexpr size_t avx512BlocksPerScan = 16;
+        constexpr size_t avx512BlocksPerScan = BlockNumPerScan;
         uint64_t combinedMasks[avx512BlocksPerScan];
         scanEnd -= (avx512Width * avx512BlocksPerScan);
         while (scannedBytes <= scanEnd)
         {
-            Get_mask_avx512(scanBytes + scannedBytes, combinedMasks, avx512BlocksPerScan, firstNonWildcardByte);
+            Get_mask_avx512(scanBytes + scannedBytes, combinedMasks, firstNonWildcardByte);
             __nop(); __nop();
             for (int vectorIdx = 0; vectorIdx < avx512BlocksPerScan; vectorIdx++)
             {
@@ -404,12 +406,12 @@ __declspec(noinline) static LPVOID PatternScanRegionEx(LPVOID startAddress, size
     else if (g_cpuFeatures & AVX2_Support)
     {
         constexpr size_t avx2Width = sizeof(__m256i);
-        constexpr size_t avx2BlocksPerScan = 16;
+        constexpr size_t avx2BlocksPerScan = BlockNumPerScan;
         scanEnd -= (avx2Width * avx2BlocksPerScan);
         uint64_t combinedMasks[avx2BlocksPerScan / 2];
         while (scannedBytes <= scanEnd)
         {
-            Get_mask_avx2(scanBytes + scannedBytes, combinedMasks, avx2BlocksPerScan, firstNonWildcardByte);
+            Get_mask_avx2(scanBytes + scannedBytes, combinedMasks, firstNonWildcardByte);
             __nop(); __nop();
             for (int maskIdx = 0; maskIdx < (avx2BlocksPerScan / 2); maskIdx++)
             {
@@ -474,13 +476,13 @@ __declspec(noinline) static LPVOID PatternScanRegionEx(LPVOID startAddress, size
     else
     {
         constexpr size_t sse2Width = sizeof(__m128i);
-        constexpr size_t sse2BlocksPerScan = 16;
+        constexpr size_t sse2BlocksPerScan = BlockNumPerScan;
         scanEnd -= (sse2Width * sse2BlocksPerScan);
 
         uint64_t combinedMasks[sse2BlocksPerScan / 4];
         while (scannedBytes <= scanEnd)
         {
-            Get_mask_sse(scanBytes + scannedBytes, combinedMasks, sse2BlocksPerScan, firstNonWildcardByte);
+            Get_mask_sse(scanBytes + scannedBytes, combinedMasks, firstNonWildcardByte);
 
             for (int maskIdx = 0; maskIdx < (sse2BlocksPerScan / 4); maskIdx++)
             {
